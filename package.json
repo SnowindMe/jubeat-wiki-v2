@@ -8,6 +8,8 @@
   },
   "scripts": {
     "dev": "astro dev",
+    "fetch:data": "node scripts/fetch-data.mjs",
+    "prebuild": "node scripts/fetch-data.mjs",
     "build": "astro build",
     "preview": "astro preview",
     "verify:data": "node scripts/verify-data.mjs",

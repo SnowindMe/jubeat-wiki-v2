@@ -443,6 +443,66 @@ a:visited { color: var(--w-hit-deep); }
 .wp-stat strong { color: var(--w-ink); font-family: var(--w-font-display); font-size: var(--w-fs-stat); font-weight: 800; line-height: 1.1 }
 .wp-stat span { color: var(--w-muted); font-size: var(--w-fs-xs) }
 
+/* ---------------------------------------------------------------------------
+   Shared content primitives. Every page composes these instead of inventing
+   its own table / list / callout styles, which is what made the pages diverge.
+--------------------------------------------------------------------------- */
+
+/* body copy */
+.wp-prose { max-width: 78ch; margin: 0 0 var(--w-s-3); color: var(--w-ink-soft); line-height: var(--w-lh-body) }
+.wp-prose:last-child { margin-bottom: 0 }
+.wp-prose a { font-weight: 600 }
+
+/* definition list: caption above value */
+.wp-dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--w-s-4); margin: 0 }
+.wp-dl > div { display: grid; gap: 2px; min-width: 0 }
+.wp-dl dt { color: var(--w-muted); font-size: var(--w-fs-xs) }
+.wp-dl dd { margin: 0; color: var(--w-ink); font-family: var(--w-font-data); font-size: var(--w-fs-lg); font-weight: 700 }
+
+/* tables */
+.wp-table-wrap { overflow-x: auto; border-radius: var(--w-r-sm) }
+.wp-table-wrap:focus { outline: 2px solid var(--w-focus); outline-offset: 2px }
+.wp-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: var(--w-fs-sm) }
+.wp-table th, .wp-table td { padding: var(--w-s-3) var(--w-s-2); border-bottom: 1px solid var(--w-seam-soft); text-align: left; vertical-align: top }
+.wp-table thead th { color: var(--w-muted); font-size: var(--w-fs-xs); font-weight: 700; border-bottom-color: var(--w-seam); white-space: nowrap }
+.wp-table tbody tr:last-child th, .wp-table tbody tr:last-child td { border-bottom: 0 }
+.wp-table tbody tr:hover { background: var(--w-panel-2) }
+.wp-table .num { color: var(--w-ink); font-family: var(--w-font-display); font-size: var(--w-fs-lg); font-weight: 800; white-space: nowrap }
+.wp-table caption { margin-bottom: var(--w-s-2); color: var(--w-muted); font-size: var(--w-fs-xs); text-align: left }
+
+/* callout */
+.wp-notice { margin: 0 0 var(--w-s-4); border-left: 3px solid var(--w-hit); border-radius: 0 var(--w-r-xs) var(--w-r-xs) 0; background: var(--w-hit-wash); padding: var(--w-s-3) var(--w-s-4); color: var(--w-ink-soft); font-size: var(--w-fs-sm); line-height: var(--w-lh-body) }
+.wp-notice:last-child { margin-bottom: 0 }
+
+/* pill rows */
+.wp-pills { display: flex; flex-wrap: wrap; gap: var(--w-s-1) }
+
+/* ordered / unordered lists with a consistent marker */
+.wp-list { display: grid; gap: var(--w-s-2); margin: 0; padding: 0; list-style: none; counter-reset: wp-item }
+.wp-list > li { position: relative; padding-left: var(--w-s-6); color: var(--w-ink-soft); line-height: var(--w-lh-body) }
+.wp-list > li::before { position: absolute; top: 0; left: 0; color: var(--w-dim); font-family: var(--w-font-data); font-size: var(--w-fs-xs) }
+.wp-list--num > li { counter-increment: wp-item }
+.wp-list--num > li::before { content: counter(wp-item, decimal-leading-zero) }
+.wp-list--dot > li::before { top: .62em; width: 6px; height: 6px; border-radius: 50%; background: var(--w-seam-hi); content: "" }
+
+/* card grids */
+.wp-grid { display: grid; gap: var(--w-s-3) }
+.wp-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+.wp-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)) }
+.wp-grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)) }
+.wp-grid--auto { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)) }
+
+/* section spacing wrapper */
+.wp-section { margin-top: var(--w-s-6) }
+.wp-section:first-child { margin-top: 0 }
+
+@media (max-width: 1024px) {
+  .wp-grid--3, .wp-grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+}
+@media (max-width: 640px) {
+  .wp-grid--2, .wp-grid--3, .wp-grid--4 { grid-template-columns: 1fr }
+}
+
 @media (max-width: 768px) {
   .w-shell { width: min(calc(100% - 24px), var(--w-shell)) }
   .w-panel { padding: var(--w-s-4) }

@@ -15,7 +15,8 @@ dist/
 *_tmp.*
 
 # 受版权保护的第三方数据（曲目清单、定数、Jubility、充能、考据、曲绘）
-# 仅保留代码与可公开的元数据结构；这些数据需在本地由构建脚本再生成。
+# 仅保留代码与可公开的元数据结构。这些数据存放在私有仓库
+# SnowindMe/jubeat-wiki-data，构建前由 scripts/fetch-data.mjs 拉取。
 data/songs.json
 data/difficulty-index.json
 data/jubility.json
@@ -25,6 +26,10 @@ data/data-conflicts.json
 data/audit-report.md
 data/_audit/
 public/jackets/
+
+# 数据拉取与发布用暂存目录
+.data-fetch/
+_data-repo/
 
 # 平台本地状态
 .wrangler/
