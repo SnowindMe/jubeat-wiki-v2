@@ -27,6 +27,13 @@ data/audit-report.md
 data/_audit/
 public/jackets/
 
+# 谱面 memo 文本（源自 SONICY / COSMOS memo 两个 atwiki 站点，第三方受版权保护数据）
+# 由 scripts/fetch-memo.mjs 本机抓取生成，不入公开仓库
+data/memo/
+
+# 抓取用的 Chrome 临时 profile
+.memo-chrome-profile/
+
 # 数据拉取与发布用暂存目录
 .data-fetch/
 _data-repo/
