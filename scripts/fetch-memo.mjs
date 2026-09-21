@@ -35,9 +35,16 @@ export function normalizeMemo(text) {
 }
 
 // ---------- 从整页 innerText 里切出 memo 区 ----------
+// ⚠️ 实测坑：atwiki 的 memo 页面会在**小节之间**插入 "BPM: 180" 这样的标记
+//    （表示此处发生变 BPM）。早期实现把非谱面行一律视为结束标志，
+//    结果遇到第一个 "BPM:" 就把后面 90% 的谱面全丢掉（Diastrophism 1000 -> 36）。
+//    因此必须「跳过」这类标记而不是终止。
+const MEMO_NOISE_RE = /^(BPM|Notes|Level|TOTAL|Total)\s*[:：]/i;
+
 export function extractMemoRegion(bodyText) {
   const lines = bodyText.split(/\r?\n/).map((l) => l.trimEnd());
   const scoreRe = /^[^\s|]{4}\s*\|[^|]*\|/;
+  const bareGridRe = /^[^\s|]{1,4}$/;
   let start = lines.findIndex((l) => scoreRe.test(l.trim()));
   if (start < 0) return null;
   // 往回把小节号纳入
@@ -47,15 +54,20 @@ export function extractMemoRegion(bodyText) {
   let blankRun = 0;
   for (let i = start; i < lines.length; i++) {
     const l = lines[i].trim();
-    if (scoreRe.test(l) || /^\d{1,4}$/.test(l) || /^[^\s|]{4}$/.test(l)) {
+    // 谱面标记：小节号 / 带节奏谱的行 / 裸铺面行
+    if (/^\d{1,4}$/.test(l) || scoreRe.test(l) || bareGridRe.test(l)) {
       out.push(l);
       blankRun = 0;
-    } else if (l === '') {
+      continue;
+    }
+    if (l === '') {
       blankRun++;
       if (blankRun > 3) break;
-    } else {
-      break; // 遇到页脚/评论等非谱面内容
+      continue;
     }
+    // 小节之间的 BPM/Notes 等标记：跳过但**不终止**
+    if (MEMO_NOISE_RE.test(l)) { blankRun = 0; continue; }
+    break; // 真正的页脚/评论区
   }
   return out.join('\n');
 }
@@ -173,7 +185,7 @@ async function grabPage(sess, url, { retries = 2 } = {}) {
         declaredNotes: declared ? +declared : null,
         holdSymbols: [...new Set((info.shortLinks || [])
           .filter((l) => /(?:pages|atwiki)/.test(l.href)
-            && /^[\u2460-\u2473\u3251-\u325f\uFF5C\u2015\uFF0D\uFF1C\uFF1E\u2228\u2227]$/.test(l.t))
+            && /^[\u2460-\u2473\u3251-\u325f\uFF5C\u2015\uFF0D\uFF1C\uFF1E\u2228\u2227\u253C]$/.test(l.t))
           .map((l) => l.t))],
       };
     }
@@ -193,56 +205,49 @@ export function safeName(s) {
     .slice(0, 120);
 }
 
-const DIFF_LABEL = { 0: 'BSC', 1: 'ADV', 2: 'EXT' };
+const DIFF_LABEL = { 3: 'BSC', 4: 'ADV', 5: 'EXT' }; // 表头列序：Music/Artist/BPM/BASIC/ADVANCED/EXTREME
 
-// 索引页正文形如：曲名  艺术家  BPM  Lv 10 (914)  Lv 10 (912)  ...
-// innerText 把难度单元格展平成 "Lv n (cnt)"，其顺序与 DOM 中难度链接顺序一致，
-// 因此按出现次序与链接列表依次配对，比按 level|notes 匹配可靠
-//（不同曲目可能 level 与 notes 完全相同，例如 Couleur=Blanche 的三个难度）。
-export function parseIndexPage(bodyText, links, source) {
+// 索引页是标准 HTML 表格（Music | Artist | BPM | BASIC | ADVANCED | EXTREME）。
+// ⚠️ 实测坑：不要用「innerText 行顺序 + 链接全局顺序」配对 URL —— DOM 中链接顺序
+//    与 innerText 行顺序并不一致，会张冠李戴（把 Sky High 的页面挂到 Couleur=Blanche 上）。
+//    必须逐行按单元格取，URL 跟着单元格走。
+export function parseIndexRows(rows, source) {
   const out = [];
-  const used = new Set();
-  const levelLinks = (links || []).filter(
-    (l) => /^Lv\s*[\d.]+\s*\(\d+\)$/.test((l.t || '').trim()) && l.href,
-  );
-  let ptr = 0;
-  const nextLink = () => {
-    while (ptr < levelLinks.length) {
-      const l = levelLinks[ptr++];
-      if (!used.has(l.href)) { used.add(l.href); return l.href; }
-    }
-    return null;
-  };
+  const cellText = (c) => (typeof c === 'string' ? c : (c && c.text) || '').trim();
 
-  for (const line of bodyText.split(/\r?\n/)) {
-    const cells = line.split(/\t+|\s{2,}/).map((c) => c.trim()).filter(Boolean);
-    if (cells.length < 4) continue;
-    const title = cells[0];
-    if (!title || /^LEVEL|^Music$|^Artist$/.test(title)) continue;
-    for (let ci = 3; ci < cells.length && ci <= 5; ci++) {
-      const m = cells[ci].match(/Lv\s*([\d.]+)\s*\((\d+)\)/);
+  for (const cells of rows) {
+    if (!cells || cells.length < 6) continue;
+    const title = cellText(cells[0]);
+    if (!title || /^Music$|^LEVEL/i.test(title)) continue;
+    for (const ci of [3, 4, 5]) {
+      const cell = cells[ci];
+      const text = cellText(cell);
+      const m = text.match(/Lv\s*([\d.]+)\s*\((\d+)\)/);
       if (!m) continue;
-      out.push({ title, diff: DIFF_LABEL[ci - 3], level: m[1], notes: +m[2], source, url: nextLink() });
+      const href = cell && cell.links && cell.links[0] && cell.links[0].href;
+      out.push({
+        title,
+        diff: DIFF_LABEL[ci],
+        level: m[1],
+        notes: +m[2],
+        source,
+        url: href ? new URL(href, 'https://w.atwiki.jp').href : null,
+      });
     }
   }
   return out;
 }
 
-// 渲染页面并取信息（供 --index 使用）
-async function readPageInfo(sess, url, { minLen = 3000 } = {}) {
-  await sess.send('Page.navigate', { url }, sess.sessionId);
-  for (let i = 0; i < 45; i++) {
-    await sleep(1000);
-    const { result } = await sess.send('Runtime.evaluate', {
-      expression: `JSON.stringify({title:document.title, bodyText:document.body?document.body.innerText:'',
-        links:[...document.querySelectorAll('a')].map(a=>({t:a.textContent.trim(),href:a.href}))})`,
-      returnByValue: true,
-    }, sess.sessionId);
-    const j = JSON.parse(result.value || '{}');
-    if (!/just a moment|请稍候|challenge/i.test(j.title || '') && (j.bodyText || '').length > minLen) return j;
-  }
-  return null;
-}
+// 从页面里抽取表格行（曲名 + 难度单元格 + 单元格内链接）
+const INDEX_TABLE_PROBE = `(() => {
+  const rows = [...document.querySelectorAll('tr')].map(tr =>
+    [...tr.children].map(td => ({
+      text: td.textContent.trim(),
+      links: [...td.querySelectorAll('a')].map(a => ({ t: a.textContent.trim(), href: a.href })),
+    }))
+  );
+  return JSON.stringify({ title: document.title, rows });
+})()`;
 
 // ---------- CLI ----------
 const argv = process.argv.slice(2);
@@ -313,14 +318,22 @@ async function main() {
     let sess;
     try {
       sess = await makeSession(port, proc);
-      const info = await readPageInfo(sess, url);
-      if (!info) { console.error('索引页未取到'); process.exitCode = 1; }
+      await sess.send('Page.navigate', { url }, sess.sessionId);
+      let tbl = null;
+      for (let i = 0; i < 45; i++) {
+        await sleep(1000);
+        const { result } = await sess.send('Runtime.evaluate', { expression: INDEX_TABLE_PROBE, returnByValue: true }, sess.sessionId);
+        const j = JSON.parse(result.value || '{}');
+        if (/just a moment|请稍候|challenge/i.test(j.title || '')) continue;
+        if ((j.rows || []).length > 20) { tbl = j; break; }
+      }
+      if (!tbl) { console.error('索引页未取到'); process.exitCode = 1; }
       else {
-        const idx = parseIndexPage(info.bodyText, info.links, source);
+        const idx = parseIndexRows(tbl.rows, source);
         const counts = {};
         for (const it of idx) counts[it.diff] = (counts[it.diff] || 0) + 1;
         const withUrl = idx.filter((x) => x.url).length;
-        console.log(`索引页 "${info.title}" -> ${idx.length} 条谱面（含URL ${withUrl}）`);
+        console.log(`索引页 "${tbl.title}" -> ${idx.length} 条谱面（含URL ${withUrl}）`);
         console.log('按难度:', JSON.stringify(counts));
         console.log('前 5 条:');
         for (const it of idx.slice(0, 5)) {

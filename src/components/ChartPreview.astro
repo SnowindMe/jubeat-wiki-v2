@@ -1,0 +1,85 @@
+---
+// 铺面预览器：详情页内嵌的 4x4 面板回放
+// - 谱面 memo 文本以 JSON 形式内联到 <script type="application/json">，无需额外请求
+// - 无 JS 时：面板按空态渲染，控件隐藏，读屏仍可读到谱面统计（音符数/小节数）
+import { parseMemo } from '../lib/memo-parser.js';
+
+interface Props {
+  chartId: string;
+  memo: string;
+  bpm: number | string | null;
+  label: string;
+  source?: string;
+}
+
+const { chartId, memo, bpm, label, source } = Astro.props;
+
+// 构建时解析一次，用于展示统计与无 JS 兜底
+let stats = null;
+let parseError = null;
+try {
+  const p = parseMemo(memo);
+  stats = p.stats;
+} catch (err) {
+  parseError = (err as Error).message;
+}
+
+const payload = JSON.stringify({ memo, bpm, label });
+---
+
+<div class="jp" data-chart-id={chartId} data-state="idle">
+  <div class="jp-head">
+    <span class="jp-label">{label}</span>
+    <span class="jp-readout">0.00 / 0.00 s</span>
+  </div>
+
+  <div class="jp-pad" role="img" aria-label={`${label} 铺面 4x4 预览`}>
+    <span class="jp-key" data-key="1"></span><span class="jp-key" data-key="2"></span>
+    <span class="jp-key" data-key="3"></span><span class="jp-key" data-key="4"></span>
+    <span class="jp-key" data-key="5"></span><span class="jp-key" data-key="6"></span>
+    <span class="jp-key" data-key="7"></span><span class="jp-key" data-key="8"></span>
+    <span class="jp-key" data-key="9"></span><span class="jp-key" data-key="10"></span>
+    <span class="jp-key" data-key="11"></span><span class="jp-key" data-key="12"></span>
+    <span class="jp-key" data-key="13"></span><span class="jp-key" data-key="14"></span>
+    <span class="jp-key" data-key="15"></span><span class="jp-key" data-key="16"></span>
+  </div>
+
+  <div class="jp-controls">
+    <button type="button" class="jp-play w-btn">播放</button>
+    <button type="button" class="jp-reset w-btn">重置</button>
+    <input class="jp-scrub" type="range" min="0" max="1000" value="0" aria-label="铺面播放进度" />
+  </div>
+
+  <p class="jp-meta">
+    {stats
+      ? <>小节 {stats.measureCount} · 音符 {stats.noteCount} · 时刻组 {stats.groupCount}{source ? <> · 来源 {source}</> : null}</>
+      : <span class="jp-err">谱面解析失败{parseError ? `：${parseError}` : ''}</span>}
+  </p>
+</div>
+
+<script type="application/json" id={`jp-data-${chartId}`} set:html={payload}></script>
+
+<style>
+/* 组件自带样式（Astro scoped）：务必放在本文件，
+   放在父页面的 <style> 里不会命中本组件的元素。 */
+.jp{display:grid;gap:var(--w-s-3);border:1px solid var(--w-seam);border-radius:var(--w-r-md);background:var(--w-grad-panel);box-shadow:var(--w-shadow-card);padding:var(--w-s-4)}
+.jp[data-state="error"]{border-color:var(--w-hit)}
+
+.jp-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--w-s-2)}
+.jp-label{color:var(--w-ink);font-family:var(--w-font-display);font-size:var(--w-fs-base);font-weight:800}
+.jp-readout{color:var(--w-muted);font-family:var(--w-font-data);font-size:var(--w-fs-micro)}
+
+.jp-pad{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:6px;aspect-ratio:1/1;width:100%;padding:8px;border-radius:var(--w-r-sm);background:var(--w-panel-2);box-sizing:border-box}
+.jp-key{display:block;border-radius:var(--w-r-xs);background:var(--w-panel);border:1px solid var(--w-seam-soft);transition:background-color 90ms linear,box-shadow 90ms linear,transform 90ms linear}
+.jp-key.is-hit{background:var(--w-hit);border-color:var(--w-hit);box-shadow:0 0 0 2px var(--w-hit-wash);transform:scale(.94)}
+
+.jp-controls{display:flex;align-items:center;gap:var(--w-s-2)}
+.jp-scrub{flex:1;min-width:0;accent-color:var(--w-hit)}
+.jp-meta{margin:0;color:var(--w-muted);font-size:var(--w-fs-micro)}
+.jp-err{color:var(--w-hit-deep)}
+
+/* 无 JS：隐藏播放控件，保留面板空态与统计文字（静态可读） */
+:global(html:not(.js)) .jp-controls{display:none}
+:global(html:not(.js)) .jp-pad{opacity:.72}
+@media(prefers-reduced-motion:reduce){.jp-key{transition:none}}
+</style>

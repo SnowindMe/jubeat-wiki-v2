@@ -12,11 +12,61 @@
 /** 空位：COSMOS 用 口(U+53E3)，SONICY 用 □(U+25A1)，还有 ・ 等变体 */
 const BLANK_RE = /[\u53e3\u25a1\u30fb.·]/;
 
-/** hold 标记：占一个格子位，须替换成空位以保持 4 格对齐（不可删除！） */
-const HOLD_MARK_RE = /[\u2228\u2227\uFF1C\uFF1E\u2015\uFF5C|]/g; // ∨ ∧ ＜ ＞ ― ｜ |
+/** hold 标记：占一个格子位，须替换成空位以保持 4 格对齐（不可删除！）
+ *  实测全库出现的 5 种：∨ ∧ ＜ ＞ ┼，以及延伸线 ― ｜ |
+ *  ┼(U+253C) 是十字延伸线，曾遗漏导致音符少算，勿删。 */
+const HOLD_MARK_RE = /[\u2228\u2227\uFF1C\uFF1E\u253C\u2015\uFF5C|]/g; // ∨ ∧ ＜ ＞ ┼ ― ｜ |
+
+/** 所有 hold 相关符号（含竖/横延伸线），用于统计与校验 */
+export const HOLD_SYMBOL_RE = /[\u2228\u2227\uFF1C\uFF1E\u253C\u2015\uFF5C|]/;
 
 /** 节奏谱空槽 */
-const AXIS_BLANK_RE = /[\uFF0D\u2015\u2014\u30FC-]/; // － ― — ー -
+export const AXIS_BLANK_RE = /[\uFF0D\u2015\u2014\u30FC-]/; // － ― — ー -
+
+/** 节奏谱字符：带圈数字、－ 空槽、| 自身的边框 */
+const AXIS_CHAR_RE = /[\u2460-\u2473\u3251-\u325f\uFF0D\u2015\u2014\u30FC\u2500]/;
+
+/**
+ * 把一行拆成 [铺面, 节奏谱]。
+ *
+ * 难点：铺面里也含 | （hold 延伸线），所以不能简单按 | 切。
+ * 思路：从**行尾**倒着找到最后一个 | 作为节奏谱右界；
+ *       再往左，只要字符属于「节奏谱值域」（带圈数字 / 空槽符 / ｜），就继续纳入，
+ *       直到遇见不属于该值域、且不是边框的字符为止 —— 那里就是左右分界。
+ *
+ * 例：
+ *   "□□□② |①－②－|"      -> grid="□□□②"  axis="①－②－"
+ *   "|④□|"                -> grid="|④□|"   axis=null   （整行都是铺面，④ 是音符）
+ *   "||□| |④－|"          -> grid="||□|"   axis="④－"
+ */
+export function splitGridAxis(line) {
+  const chars = [...line];
+  const last = chars.length - 1;
+  if (last < 0) return null;
+  const whole = () => ({ grid: line.trim(), axis: null });
+  // 不以 | 结尾 => 整行都是铺面
+  if (chars[last] !== '|') return whole();
+
+  // 找配对的开头 |（节奏谱的左边框）：从右往左，跳过值域字符后遇到的第一个 |
+  let i = last - 1;
+  let sawAxisChar = false;
+  while (i >= 0) {
+    const c = chars[i];
+    if (c === '|') {
+      // 左边框。只有当前面已出现过节奏谱字符，才认定这是节奏谱；
+      // 否则说明这个 | 也是铺面里的 hold 延伸线（如 "|④□|"）
+      if (!sawAxisChar) return whole();
+      return {
+        grid: chars.slice(0, i).join('').trim(),
+        axis: chars.slice(i + 1, last).join(''),
+      };
+    }
+    if (AXIS_CHAR_RE.test(c) || c === '\uFF5C') { sawAxisChar = true; i--; continue; }
+    if (c === ' ' || c === '\u3000') { i--; continue; }
+    return whole();
+  }
+  return whole();
+}
 
 /** 带圈数字 -> 序号 */
 export function circledToIndex(ch) {
@@ -67,10 +117,9 @@ export function parseMemo(text, { bpm = null } = {}) {
     clean = clean.replace(/[\s\u3000]/g, '');
     let chars = [...clean];
     if (chars.length !== 4) {
-      // 整行都是 hold 延伸线（原文如 "|□□|"）时，去掉标记后会短于 4 格。
-      // 这类行不携带音符，按「空铺面行」处理并补足 4 格，而不是丢弃
-      // —— 丢弃会造成后续行错位，进而漏算音符。
-      if (chars.length > 0 && chars.length < 4 && chars.every((c) => BLANK_RE.test(c))) {
+      // hold 延伸线占格，去掉/替换后可能不足 4 格（原文如 "|□□|"、"||□|"）。
+      // 这类行不携带音符，按「空铺面行」补足 4 格保留 —— 丢弃会造成后续行错位、漏算音符。
+      if (chars.length < 4 && chars.every((c) => BLANK_RE.test(c))) {
         chars = [...Array(4)].map(() => '\u25a1');
       } else {
         return null;
@@ -94,29 +143,25 @@ export function parseMemo(text, { bpm = null } = {}) {
     if (!cur) continue;
 
     // 主形态：[铺面] |节奏谱|
-    const m = line.match(/^(.*?)\s*\|([^|]*)\|\s*$/);
-    if (m) {
-      const gridCell = m[1];
-      const axisRaw = m[2];
-      // 铺面侧为空（原文形如 "|□□|"，两侧 | 都是 hold 延伸线）-> 记为一行空铺面
-      if (!gridCell.replace(/[\s\u3000]/g, '')) {
-        holdMarkCount += [...gridCell].filter((c) => HOLD_MARK_RE.test(c)).length;
-        cur.rows.push({ grid: [...Array(4)].map(() => '\u25a1'), axisRaw, slots: [...axisRaw] });
-        continue;
-      }
-      const parsed = this_grid(gridCell);
+    // ⚠️ 铺面里也会出现 | （hold 延伸线），例如原文 "|④□|"，其 ④ 是**音符**。
+    //    因此不能把 | 当分隔符先切分，否则会丢掉该音符（曾导致整库 2 首各少 1 音符）。
+    //    做法：把整行按字符遍历，从行尾识别「真正的节奏谱」段。
+    const split = splitGridAxis(line);
+    if (split) {
+      const parsed = this_grid(split.grid);
       if (parsed) {
-        cur.rows.push({ grid: parsed.grid, axisRaw, slots: [...axisRaw] });
+        const axis = split.axis;
+        cur.rows.push({ grid: parsed.grid, axisRaw: axis, slots: axis ? [...axis] : null });
         continue;
       }
       unparsedLines.push(line);
       continue;
     }
 
-    // 续行铺面（没有节奏谱）
-    const parsed = this_grid(line);
-    if (parsed) {
-      cur.rows.push({ grid: parsed.grid, axisRaw: null, slots: null });
+    // 续行铺面（无节奏谱）
+    const parsedBare = this_grid(line);
+    if (parsedBare) {
+      cur.rows.push({ grid: parsedBare.grid, axisRaw: null, slots: null });
       continue;
     }
     unparsedLines.push(line);

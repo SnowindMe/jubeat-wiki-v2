@@ -1,7 +1,9 @@
 ---
 import Layout from '../../components/Layout.astro';
+import ChartPreview from '../../components/ChartPreview.astro';
 import { songs, jubility, diffLabels, display, songHref, songPathId, sourceLabel, meta } from '../../lib/data';
 import { conflictsForSong, conflictMeta } from '../../scripts/data-conflicts.js';
+import { loadMemoIndex, memoForSong } from '../../lib/memo-data.js';
 export function getStaticPaths() { return songs.map(song => ({ params: { songId: songPathId(song.songId) }, props: { song } })); }
 const { song } = Astro.props;
 const index = songs.findIndex(item => item.songId === song.songId);
@@ -12,6 +14,10 @@ const noteKey = { bsc: 'basic', adv: 'advanced', ext: 'extreme' } as const;
 const jubi = jubility.entries.filter(entry => entry.songId === song.songId);
 const fieldConflicts = conflictsForSong(song.songId);
 const sourceFor = (field: string) => song.fieldSources?.[field as keyof typeof song.fieldSources] ?? song.sources[0] ?? 'unknown';
+
+// 谱面 memo（可选）：构建时载入，无数据时预览按钮不出现
+const memoIndex = loadMemoIndex();
+const memoCharts = memoForSong(memoIndex, song);
 ---
 <Layout title={song.title} description={`${song.title} 的谱面难度、来源、解禁与考据资料。`} section="songs">
   <nav class="crumb" aria-label="面包屑">
@@ -44,17 +50,42 @@ const sourceFor = (field: string) => song.fieldSources?.[field as keyof typeof s
       <h2 class="wp-h2">谱面难度<span class="wp-h2__note">每行标注字段来源</span></h2>
       <div class="table-scroll" tabindex="0" aria-label="谱面难度表，可横向滚动">
         <table>
-          <thead><tr><th scope="col">难度</th><th scope="col">等级</th><th scope="col">原始标记</th><th scope="col">NOTE 数</th><th scope="col">字段来源</th></tr></thead>
+          <thead><tr><th scope="col">难度</th><th scope="col">等级</th><th scope="col">原始标记</th><th scope="col">NOTE 数</th><th scope="col">字段来源</th>{memoCharts && <th scope="col">铺面</th>}</tr></thead>
           <tbody>{diffs.map(diff => <tr id={`chart-${diff}`}>
             <th scope="row"><span class="w-difficulty" data-difficulty={diff}>{diffLabels[diff]}</span></th>
             <td class="cell-num">{display(song.levels[diff], '未上线')}</td>
             <td>{display(song.levelMarks[diff])}</td>
             <td class="cell-num">{display(song.notecounts?.[noteKey[diff]])}</td>
             <td>{sourceLabel(sourceFor(diff))}</td>
+            {memoCharts && <td class="cell-act">
+              {memoCharts[diff]
+                ? <a class="jp-jump w-btn" href={`#preview-${diff}`} data-jp-jump={diff}>▶ 预览</a>
+                : <span class="jp-none" title="该难度暂无谱面数据">—</span>}
+            </td>}
           </tr>)}</tbody>
         </table>
       </div>
+      <p class="jp-note">
+        铺面数据来自 SONICY / COSMOS memo（第三方谱面资料），仅供查阅与练谱参考。
+      </p>
     </section>
+
+    {memoCharts && <section class="w-panel" id="preview">
+      <h2 class="wp-h2">铺面预览<span class="wp-h2__note">4×4 面板回放</span></h2>
+      <div class="jp-grid">
+        {diffs.map(diff => memoCharts[diff] && (
+          <div class="jp-slot" id={`preview-${diff}`}>
+            <ChartPreview
+              chartId={`${song.songId}-${diff}`}
+              memo={memoCharts[diff].memo}
+              bpm={song.bpm}
+              label={`${diffLabels[diff]} ${display(song.levels[diff], '')}`.trim()}
+              source={memoCharts[diff].source}
+            />
+          </div>
+        ))}
+      </div>
+    </section>}
 
     {fieldConflicts.length > 0 && <section class="w-panel">
       <h2 class="wp-h2">字段差异说明<span class="wp-h2__note">多源冲突不静默合并</span></h2>
@@ -95,6 +126,16 @@ const sourceFor = (field: string) => song.fieldSources?.[field as keyof typeof s
     </nav>
   </article>
 </Layout>
+
+<script>
+  import { mountAll } from '../../lib/chart-player.js';
+  // 与站点既有约定一致：View Transitions 下用 astro:page-load 重新挂载。
+  // 无条件加载：没有预览器的页面 mountAll 会自然空转，代价可忽略。
+  const initJp = () => { try { mountAll(); } catch (err) { console.error('[jp]', err); } };
+  if (document.readyState !== 'loading') initJp();
+  else document.addEventListener('DOMContentLoaded', initJp);
+  document.addEventListener('astro:page-load', initJp);
+</script>
 <style>
 .crumb{display:flex;flex-wrap:wrap;align-items:center;gap:var(--w-s-2);margin:var(--w-s-2) 0 var(--w-s-4);font-size:var(--w-fs-sm)}
 .crumb a{color:var(--w-muted);text-decoration:none}
@@ -145,11 +186,21 @@ tbody tr:target{background:var(--w-hit-wash)}
 .adjacent{display:grid;grid-template-columns:1fr 1fr;gap:var(--w-s-3)}
 .adj{display:grid;gap:2px;border:1px solid var(--w-seam);border-radius:var(--w-r-pill);background:var(--w-grad-panel);box-shadow:var(--w-shadow-card);padding:var(--w-s-3) var(--w-s-5);text-decoration:none;transition:border-color var(--w-dur-base) var(--w-ease),box-shadow var(--w-dur-base) var(--w-ease),transform var(--w-dur-base) var(--w-ease)}
 .adj:hover{border-color:var(--w-seam-hi);box-shadow:var(--w-shadow-lift);transform:translateY(-1px)}
-.adj--next{text-align:right}
-.adj--empty{border:0;background:none;box-shadow:none}
+.adj--next{text-align:right}.adj--empty{border:0;background:none;box-shadow:none}
 .adj__dir{color:var(--w-muted);font-size:var(--w-fs-xs)}
 .adj strong{color:var(--w-ink);font-family:var(--w-font-display);font-size:var(--w-fs-lg);font-weight:800}
 .adj:hover strong{color:var(--w-hit-deep)}
+
+/* ---- 铺面预览（仅本页布局；卡片内样式在 ChartPreview.astro） ---- */
+.cell-act{white-space:nowrap}
+.jp-jump{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 12px;border-radius:var(--w-r-pill);border:1px solid var(--w-seam);background:var(--w-panel-2);color:var(--w-ink-soft);font-size:var(--w-fs-xs);font-weight:700;text-decoration:none;transition:border-color var(--w-dur-base) var(--w-ease),color var(--w-dur-base) var(--w-ease)}
+.jp-jump:hover{border-color:var(--w-hit);color:var(--w-hit-deep)}
+.jp-none{color:var(--w-dim)}
+.jp-note{margin:var(--w-s-3) 0 0;color:var(--w-dim);font-size:var(--w-fs-micro)}
+
+.jp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:var(--w-s-4);align-items:start}
+.jp-slot{min-width:0}
+.jp-slot:target{outline:2px solid var(--w-hit);outline-offset:4px;border-radius:var(--w-r-sm)}
 
 @media(max-width:768px){
   .detail__head{grid-template-columns:1fr;gap:var(--w-s-4)}

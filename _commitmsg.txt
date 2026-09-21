@@ -1,0 +1,18 @@
+feat(songs): 详情页每难度内嵌 4x4 铺面预览器
+
+- src/lib/memo-parser.js: memo 解析（快照/组号/时间轴/键号），输出可播放时间轴
+- src/lib/chart-player.js: 4x4 面板回放（播放/暂停/进度/重置/进入视口自动播放）
+- src/components/ChartPreview.astro: 预览卡片（构建时内联谱面数据，无 JS 时静态可读）
+- src/lib/memo-data.js: 按 歌名+难度 索引 data/memo/*.txt
+- src/pages/songs/[songId].astro: 难度表新增「铺面」列与预览区
+
+修复的关键问题（均为实测发现）:
+- 铺面中的竖线也可能只是 hold 延伸线（原文形如 竖线+④+空位+竖线），
+  按竖线切分会丢音符；改为从行尾识别真正的节奏谱段（splitGridAxis），含 11 项单元测试
+- hold 标记（含十字延伸线）占一格，必须替换为空位而非删除
+- 样式必须写在组件自身的 style 内，写在父页面不会命中子组件元素
+- 构建期不能用 import.meta.url 推项目根目录（Vite 打包后指向 .astro/），
+  会静默读到 0 个文件；改用 process.cwd()
+
+验证: 全库 61 谱面中 60 与官方 Notes 一致（唯一 1 条为 wiki 页面自身标注偏差）；
+      真机 CDP 验证三个难度均挂载并可播放，EXT 最多同时亮 4 键
