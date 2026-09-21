@@ -1,6 +1,36 @@
 ---
-import Layout from '../components/Layout.astro'; import PageIntro from '../components/PageIntro.astro';
-const steps=[['先选一首认识的歌','从曲目库打开任意曲目，先看 BASIC、ADVANCED、EXTREME 的等级。'],['读懂资料状态','破折号代表源数据没有值；“未匹配”代表解禁资料没有对应的独立曲目对象。'],['用数据辅助练习','理论值仅供参考。练习请优先根据自己稳定度选择歌曲。']];
+import Layout from '../components/Layout.astro';
+import PageIntro from '../components/PageIntro.astro';
+const steps = [
+  ['先选一首认识的歌', '从曲目库打开任意曲目，先看 BASIC、ADVANCED、EXTREME 的等级。'],
+  ['读懂资料状态', '破折号代表源数据没有值；“未匹配”代表解禁资料没有对应的独立曲目对象。'],
+  ['用数据辅助练习', '理论值仅供参考。练习请优先根据自己稳定度选择歌曲。'],
+];
 ---
-<Layout title="新手上路" description="使用 jubeat 音乐魔方 WIKI 的新手阅读指南。" section="about"><PageIntro eyebrow="ABOUT / START HERE" title="新手上路" lead="这是一座可从静态页面直接阅读的资料站。无需登录、无需启用 JavaScript，也能从一首曲开始。"/><div class="steps">{steps.map(([title,text],index)=><article class="w-card"><span>STEP {index+1}</span><h2>{title}</h2><p>{text}</p></article>)}</div><p class="cta"><a href="/songs/">进入曲目库 →</a></p></Layout>
-<style>.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--w-s-4)}.steps span{font:700 var(--w-fs-sm) var(--w-font-data);color:var(--w-hit-deep)}.steps h2{font-family:var(--w-font-display)}.steps p{color:var(--w-ink-soft)}.cta{margin-top:var(--w-s-6);font-weight:800}@media(max-width:700px){.steps{grid-template-columns:1fr}}</style>
+<Layout title="新手上路" description="使用 jubeat 音乐魔方 WIKI 的新手阅读指南。" section="about">
+  <PageIntro eyebrow="ABOUT / START HERE" title="新手上路" lead="这是一座可从静态页面直接阅读的资料站。无需登录、无需启用 JavaScript，也能从一首曲开始。"/>
+
+  <section class="wp-section" aria-labelledby="steps-title">
+    <h2 class="wp-h2" id="steps-title">三步开始<span class="wp-h2__note">共 {steps.length} 步</span></h2>
+    <div class="steps">
+      {steps.map(([title, text], index) => <article class="step w-card">
+        <span class="step__no">STEP {index + 1}</span>
+        <h3 class="step__title">{title}</h3>
+        <p class="step__text">{text}</p>
+      </article>)}
+    </div>
+  </section>
+
+  <div class="wp-pills cta">
+    <a class="wp-btn wp-btn--solid" href="/songs/">进入曲目库</a>
+    <a class="wp-btn" href="/gameplay/">了解玩法与判定</a>
+  </div>
+</Layout>
+<style>
+.steps{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:var(--w-s-3)}
+.step{display:grid;align-content:start;gap:var(--w-s-2)}
+.step__no{color:var(--w-hit-deep);font-family:var(--w-font-data);font-size:var(--w-fs-xs);font-weight:700;letter-spacing:.06em}
+.step__title{margin:0;color:var(--w-ink);font-family:var(--w-font-display);font-size:var(--w-fs-lg);font-weight:800}
+.step__text{margin:0;color:var(--w-ink-soft);font-size:var(--w-fs-sm);line-height:var(--w-lh-body)}
+.cta{margin-top:var(--w-s-6)}
+</style>

@@ -1,6 +1,37 @@
 ---
-import Layout from '../components/Layout.astro'; import PageIntro from '../components/PageIntro.astro';
-const eras=[['jubeat','初代 · 2008','16 格触控面板的起点。'],['ripples','ripples · 2009','以涟漪为主题的继承版本。'],['knit','knit · 2010','编织视觉与曲目扩展。'],['copious','copious · 2011','收录量显著增加。'],['saucer','saucer · 2012','碟形界面时代。'],['prop / Qubell','2015–2016','方块与宝石主题阶段。'],['clan / festo','2017–2019','社群与庆典主题阶段。'],['Ave.','2022','街道主题、延续的 4×4 玩法。']];
+import Layout from '../components/Layout.astro';
+import PageIntro from '../components/PageIntro.astro';
+const eras = [
+  ['jubeat', '初代 · 2008', '16 格触控面板的起点。'],
+  ['ripples', 'ripples · 2009', '以涟漪为主题的继承版本。'],
+  ['knit', 'knit · 2010', '编织视觉与曲目扩展。'],
+  ['copious', 'copious · 2011', '收录量显著增加。'],
+  ['saucer', 'saucer · 2012', '碟形界面时代。'],
+  ['prop / Qubell', '2015–2016', '方块与宝石主题阶段。'],
+  ['clan / festo', '2017–2019', '社群与庆典主题阶段。'],
+  ['Ave.', '2022', '街道主题、延续的 4×4 玩法。'],
+];
 ---
-<Layout title="版本沿革" description="jubeat 系列主要版本的阅读索引。" section="catalogue"><PageIntro eyebrow="CATALOGUE / HISTORY" title="版本沿革" lead="以版本为线索阅读 jubeat 的玩法与曲目演变。这里是概览索引，不把未核对的细节写成事实。"/><ol class="timeline">{eras.map(([name,time,desc])=><li class="w-card"><span>{time}</span><h2>{name}</h2><p>{desc}</p></li>)}</ol></Layout>
-<style>.timeline{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--w-s-4);padding:0;list-style:none}.timeline span{font-family:var(--w-font-data);color:var(--w-hit-deep);font-size:var(--w-fs-sm)}.timeline h2{margin:var(--w-s-2) 0;font-family:var(--w-font-display)}.timeline p{margin:0;color:var(--w-ink-soft)}</style>
+<Layout title="版本沿革" description="jubeat 系列主要版本的阅读索引。" section="catalogue">
+  <PageIntro eyebrow="CATALOGUE / HISTORY" title="版本沿革" lead="以版本为线索阅读 jubeat 的玩法与曲目演变。这里是概览索引，不把未核对的细节写成事实。"/>
+
+  <section class="wp-section" aria-labelledby="timeline-title">
+    <h2 class="wp-h2" id="timeline-title">版本序列<span class="wp-h2__note">共 {eras.length} 个阶段</span></h2>
+    <ol class="timeline">
+      {eras.map(([name, time, desc], index) => <li class="era w-card">
+        <span class="era__index" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+        <span class="era__time">{time}</span>
+        <h3 class="era__name">{name}</h3>
+        <p class="era__desc">{desc}</p>
+      </li>)}
+    </ol>
+  </section>
+</Layout>
+<style>
+.timeline{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:var(--w-s-3);margin:0;padding:0;list-style:none}
+.era{position:relative;display:grid;align-content:start;gap:var(--w-s-1);padding:var(--w-s-4) var(--w-s-5)}
+.era__index{position:absolute;top:var(--w-s-3);right:var(--w-s-4);color:var(--w-dim);font-family:var(--w-font-data);font-size:var(--w-fs-xs);opacity:.7}
+.era__time{color:var(--w-hit-deep);font-family:var(--w-font-data);font-size:var(--w-fs-xs)}
+.era__name{margin:0;color:var(--w-ink);font-family:var(--w-font-display);font-size:var(--w-fs-lg);font-weight:800}
+.era__desc{margin:0;color:var(--w-ink-soft);font-size:var(--w-fs-sm);line-height:var(--w-lh-body)}
+</style>

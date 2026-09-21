@@ -1,6 +1,40 @@
 ---
-import Layout from '../components/Layout.astro'; import PageIntro from '../components/PageIntro.astro';
-const terms=[['谱面','一首曲目在特定难度下的按键配置。'],['BASIC / ADVANCED / EXTREME','本站使用的三个基础难度标签；未上线或缺失的等级会明确显示。'],['EXC','全连达成的评价称呼；理论值资料中会并列其相关分级。'],['Jubility','以游玩成绩和谱面定数为基础的数值体系；本站只展示已提供的参考表。'],['充能池','隐藏曲解禁所对应的曲目池。阶段和未匹配条目均以原数据呈现。']];
+import Layout from '../components/Layout.astro';
+import PageIntro from '../components/PageIntro.astro';
+const terms = [
+  ['谱面', '一首曲目在特定难度下的按键配置。'],
+  ['BASIC / ADVANCED / EXTREME', '本站使用的三个基础难度标签；未上线或缺失的等级会明确显示。'],
+  ['EXC', '全连达成的评价称呼；理论值资料中会并列其相关分级。'],
+  ['Jubility', '以游玩成绩和谱面定数为基础的数值体系；本站只展示已提供的参考表。'],
+  ['充能池', '隐藏曲解禁所对应的曲目池。阶段和未匹配条目均以原数据呈现。'],
+];
 ---
-<Layout title="玩法判定" description="jubeat 音乐魔方基础玩法与用语表。" section="catalogue"><PageIntro eyebrow="CATALOGUE / PLAY" title="玩法与判定" lead="在 4×4 面板上，音乐的节拍转化为同时点亮的按键。先理解判定，再进入自己的练习节奏。"/><section class="w-panel"><h2>基本玩法</h2><p>当面板上的按键在判定时机点亮时按下。谱面会以 BASIC、ADVANCED、EXTREME 三种难度记录；曲目页可查看现有等级与来源。</p><p><a href="/songs/">浏览全部曲目 →</a>　<a href="/jubility/">查看理论值参考 →</a></p></section><section id="glossary" class="glossary"><h2>术语表</h2><dl>{terms.map(([term,desc])=><div class="w-card"><dt>{term}</dt><dd>{desc}</dd></div>)}</dl></section></Layout>
-<style>h2{font-family:var(--w-font-display)}.glossary{margin-top:var(--w-s-10)}dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:var(--w-s-4)}dl div{margin:0}dt{font-weight:800;color:var(--w-hit-deep)}dd{margin:var(--w-s-2) 0 0;color:var(--w-ink-soft)}</style>
+<Layout title="玩法判定" description="jubeat 音乐魔方基础玩法与用语表。" section="catalogue">
+  <PageIntro eyebrow="CATALOGUE / PLAY" title="玩法与判定" lead="在 4×4 面板上，音乐的节拍转化为同时点亮的按键。先理解判定，再进入自己的练习节奏。"/>
+
+  <section class="w-panel" aria-labelledby="basic-title">
+    <h2 class="wp-h2" id="basic-title">基本玩法</h2>
+    <p class="wp-prose">当面板上的按键在判定时机点亮时按下。谱面会以 BASIC、ADVANCED、EXTREME 三种难度记录；曲目页可查看现有等级与来源。</p>
+    <div class="wp-pills links">
+      <a class="wp-btn" href="/songs/">浏览全部曲目</a>
+      <a class="wp-btn" href="/jubility/">查看理论值参考</a>
+    </div>
+  </section>
+
+  <section class="wp-section" id="glossary" aria-labelledby="glossary-title">
+    <h2 class="wp-h2" id="glossary-title">术语表<span class="wp-h2__note">共 {terms.length} 条</span></h2>
+    <dl class="terms">
+      {terms.map(([term, desc]) => <div class="term w-card">
+        <dt>{term}</dt>
+        <dd>{desc}</dd>
+      </div>)}
+    </dl>
+  </section>
+</Layout>
+<style>
+.links{margin-top:var(--w-s-4)}
+.terms{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:var(--w-s-3);margin:0}
+.term{display:grid;align-content:start;gap:var(--w-s-2)}
+.term dt{color:var(--w-ink);font-family:var(--w-font-display);font-size:var(--w-fs-base);font-weight:800}
+.term dd{margin:0;color:var(--w-ink-soft);font-size:var(--w-fs-sm);line-height:var(--w-lh-body)}
+</style>

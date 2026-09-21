@@ -13,6 +13,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "verify:data": "node scripts/verify-data.mjs",
+    "verify:tokens": "node scripts/check-tokens.mjs",
     "verify:acceptance": "node scripts/verify-acceptance.mjs",
     "compress:jackets": "node scripts/compress-jackets.mjs",
     "verify:platform-build": "node scripts/verify-platform-build.mjs",
