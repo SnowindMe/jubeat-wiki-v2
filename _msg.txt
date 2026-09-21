@@ -1,0 +1,8 @@
+chore(data): 让构建期同步 memo 谱面数据
+
+- scripts/fetch-data.mjs: 除 JSON 与 jackets 外，一并整体同步 data/memo/
+  （缺失不报错：无谱面数据时预览器不渲染，站点其余部分照常）
+- .gitignore: 补充 data/_memo_backup/ 保护
+
+memo 文本已推入私有仓库 SnowindMe/jubeat-wiki-data（61 份），
+线上构建经 DATA_REPO_TOKEN 拉取，公开仓库不含版权数据。

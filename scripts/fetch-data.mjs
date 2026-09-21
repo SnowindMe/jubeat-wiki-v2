@@ -65,6 +65,19 @@ await rm(jacketDest, { recursive: true, force: true });
 await mkdir(jacketDest, { recursive: true });
 if (await exists(jacketSrc)) await cp(jacketSrc, jacketDest, { recursive: true });
 
+// memo 谱面文本：同样整体同步，避免上游删除后本地残留。
+// 这些文件是谱面预览器的输入（src/lib/memo-data.js 读取 data/memo/*.txt）。
+// 缺失不是错误：没有谱面数据时预览器不渲染，站点其余部分照常工作。
+const memoSrc = path.join(dataSrc, 'memo');
+const memoDest = path.join(root, 'data', 'memo');
+await rm(memoDest, { recursive: true, force: true });
+let memoCount = 0;
+if (await exists(memoSrc)) {
+  await mkdir(memoDest, { recursive: true });
+  await cp(memoSrc, memoDest, { recursive: true });
+  memoCount = (await import('node:fs')).readdirSync(memoDest).filter((f) => f.endsWith('.txt')).length;
+}
+
 await rm(staging, { recursive: true, force: true });
 const jackets = (await import('node:fs')).readdirSync(jacketDest).length;
-say(`完成：data/ 已同步，public/jackets/ ${jackets} 个文件。`);
+say(`完成：data/ 已同步，public/jackets/ ${jackets} 个文件，memo 谱面 ${memoCount} 份。`);
