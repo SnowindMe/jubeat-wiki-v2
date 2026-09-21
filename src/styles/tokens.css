@@ -253,32 +253,6 @@ body::after {
 body > * { position: relative; z-index: 1; }
 ::selection { background: var(--w-hit); color: var(--w-hit-ink); }
 
-/* diamond shortcut tile, from the cabinet shortcut row */
-.wp-dia {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  flex: none;
-  place-items: center;
-  border: 2px solid rgb(255 255 255 / 78%);
-  border-radius: var(--w-r-sm);
-  background: var(--w-grad-accent);
-  color: #fff;
-  font-family: var(--w-font-display);
-  font-size: var(--w-fs-lg);
-  font-weight: 800;
-  line-height: 1;
-  text-shadow: 0 1px 3px rgb(4 60 78 / 30%);
-  box-shadow: 0 3px 10px rgb(23 111 145 / 18%);
-  transform: rotate(45deg);
-}
-.wp-dia > * { transform: rotate(-45deg) }
-.wp-dia--green { background: var(--w-dia-green) }
-.wp-dia--blue { background: var(--w-dia-blue) }
-.wp-dia--orange { background: var(--w-dia-orange) }
-.wp-dia--pink { background: var(--w-dia-pink) }
-.wp-dia--violet { background: var(--w-grad-violet) }
-
 img, svg, video { display: block; max-width: 100%; }
 button, input, select, textarea { font: inherit; }
 a { color: var(--w-hit-deep); text-decoration-thickness: 1px; text-underline-offset: .16em; }
@@ -296,7 +270,6 @@ a:visited { color: var(--w-hit-deep); }
   box-shadow: var(--w-shadow-card);
 }
 .w-panel { padding: var(--w-s-6); }
-.w-panel--glass { background: var(--w-grad-glass); backdrop-filter: blur(10px); }
 .w-card { padding: var(--w-s-5); transition: box-shadow var(--w-dur-base) var(--w-ease), transform var(--w-dur-base) var(--w-ease), border-color var(--w-dur-base) var(--w-ease); }
 .w-card:hover { border-color: var(--w-seam-hi); box-shadow: var(--w-shadow-lift); transform: translateY(-2px); }
 
@@ -413,33 +386,10 @@ a:visited { color: var(--w-hit-deep); }
 .wp-btn--solid { border-color: var(--w-field-deep); background: var(--w-hit); color: var(--w-hit-ink); box-shadow: var(--w-shadow-glow) }
 .wp-btn--solid:hover { border-color: var(--w-field-deep); background: var(--w-field-deep); color: #fff }
 
-/* search: the wrapper is the positioning context for icon + kbd */
-.wp-search { position: relative; display: block; flex: 1; min-width: 190px }
-.wp-search input { width: 100%; padding-left: 38px; padding-right: 40px }
-.wp-search__icon { position: absolute; top: 50%; left: 13px; width: 13px; height: 13px; margin-top: -6.5px; pointer-events: none }
-.wp-search__icon::before { position: absolute; top: 0; left: 0; width: 8px; height: 8px; border: 1.5px solid var(--w-dim); border-radius: var(--w-r-xs); content: "" }
-.wp-search__icon::after { position: absolute; right: 0; bottom: 0; width: 5px; height: 1.5px; background: var(--w-dim); content: ""; transform: rotate(45deg); transform-origin: 100% }
-.wp-search__kbd {
-  position: absolute;
-  top: 50%;
-  right: 11px;
-  border: 1px solid var(--w-seam);
-  border-radius: var(--w-r-xs);
-  background: var(--w-panel);
-  padding: 1px 6px;
-  color: var(--w-dim);
-  font-family: var(--w-font-data);
-  font-size: 10px;
-  line-height: 1.5;
-  transform: translateY(-50%);
-}
-
 /* Logo is applied as a CSS mask, not an <img>: an SVG inside <img> cannot inherit
    the page colour, so masking lets one asset follow the theme. */
 .w-brand-logo { display: block; width: clamp(96px, 12vw, 140px); aspect-ratio: 2432 / 992; background-color: currentColor; -webkit-mask: url('/brand/jubeat-logo.svg') left center / contain no-repeat; mask: url('/brand/jubeat-logo.svg') left center / contain no-repeat }
 .w-brand-logo--hero { width: clamp(150px, 20vw, 230px) }
-.w-brand-logo-frame { display: inline-flex; align-items: center; justify-content: center; padding: var(--w-s-3); border: 1px solid var(--w-seam); border-radius: var(--w-r-md); background: var(--w-panel) }
-.w-brand-logo-placeholder { display: grid; width: clamp(96px, 12vw, 140px); min-height: 42px; place-items: center; border: 2px solid var(--w-ink); border-radius: var(--w-r-xs); color: var(--w-ink); font-family: var(--w-font-display); font-size: var(--w-fs-sm); font-weight: 900 }
 .w-skip-link { position: fixed; z-index: 100; top: var(--w-s-2); left: var(--w-s-2); padding: var(--w-s-2) var(--w-s-3); border-radius: var(--w-r-sm); background: var(--w-hit); color: var(--w-hit-ink); transform: translateY(-200%) }
 .w-skip-link:focus { transform: translateY(0) }
 
@@ -477,10 +427,6 @@ a:visited { color: var(--w-hit-deep); }
 /* the lit key also lifts, so the beat reads even on a low-contrast field */
 .w-pad-4x4--diamond .w-pad-key.is-lit { box-shadow: 0 0 20px var(--pad-lit-glow), 0 0 6px var(--pad-lit-glow) }
 
-.w-song-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--w-card-min)), 1fr)); gap: var(--w-s-4) }
-.w-diamond-link { display: inline-grid; grid-template-columns: var(--w-tap) 1fr; align-items: center; gap: var(--w-s-3); min-height: var(--w-tap); color: var(--w-ink); font-weight: 700; text-decoration: none }
-.w-diamond-link__icon { display: grid; width: 30px; height: 30px; place-items: center; border-radius: var(--w-r-sm); background: var(--w-hit-wash); color: var(--w-hit-deep); font-weight: 800 }
-.w-diamond-link:hover .w-diamond-link__icon, .w-diamond-link:focus-visible .w-diamond-link__icon { background: var(--w-hit); color: var(--w-hit-ink) }
 .w-cover-slot { display: grid; aspect-ratio: 1; place-items: center; overflow: hidden; border-radius: var(--w-r-sm); background: var(--w-panel-2) }
 .w-pool-card { --w-pool-grad: var(--w-grad-accent); --w-pool-color: var(--w-hit); position: relative; overflow: hidden; border: 1px solid var(--w-seam); border-radius: var(--w-r-lg); background: var(--w-grad-panel); padding: var(--w-s-5); box-shadow: var(--w-shadow-card) }
 .w-pool-card::before { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 5px; height: auto; content: ""; background: var(--w-pool-grad) }
