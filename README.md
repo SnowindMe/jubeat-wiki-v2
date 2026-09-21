@@ -7,6 +7,26 @@
 - 数据口径与缺口：`data/data-meta.json`、`data/data-conflicts.json`
 - 最终静态验收证据：`docs/static-final-evidence.json`
 
+## 数据来源说明（克隆后必读）
+
+本仓库只包含源码、构建脚本与文档。**曲目清单、定数、Jubility、充能池、考据与曲绘属于第三方版权资料，未纳入版本库**，因此首次克隆后 `data/` 与 `public/jackets/` 是空的，直接执行 `npm run build` 会因缺少数据而失败。
+
+受排除的路径包括：
+
+- `data/songs.json`、`data/difficulty-index.json`、`data/jubility.json`、`data/unlock.json`
+- `data/data-meta.json`、`data/data-conflicts.json`、`data/audit-report.md`、`data/_audit/`
+- `public/jackets/`（492 张曲绘）
+
+需要完整构建时，请从相邻的 `../jubeat-wiki/` 快照与审计产物用 `scripts/build-data.mjs` 再生成上述文件，再执行构建：
+
+```sh
+node scripts/build-data.mjs
+npm run verify:data
+npm run build
+```
+
+数据口径与缺口以 `data/data-meta.json`、`data/data-conflicts.json` 为准；字段缺失保持 `null`，不得把缺口推断成事实。
+
 ## 本地开发
 
 在本目录执行：
