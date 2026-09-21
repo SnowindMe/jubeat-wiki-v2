@@ -1,20 +1,20 @@
 {
-  "generatedAt": "2026-09-21T05:37:08.720Z",
+  "generatedAt": "2026-09-21T23:00:53.365Z",
   "checks": [
     {
       "name": "搜索索引",
       "status": "passed",
-      "evidence": "500 条，URL 与规则一致"
+      "evidence": "503 条，URL 与规则一致"
     },
     {
       "name": "语义数值 URL",
       "status": "passed",
-      "evidence": "494 首数值 ID 为 /songs/<songId>/"
+      "evidence": "503 首数值 ID 为 /songs/<songId>/"
     },
     {
       "name": "特殊 ID 可逆编码",
       "status": "passed",
-      "evidence": "6 个 title: 型 ID 使用 id-十六进制码点路径"
+      "evidence": "0 个 title: 型 ID 使用 id-十六进制码点路径"
     },
     {
       "name": "内部链接与 sitemap",
@@ -24,7 +24,7 @@
     {
       "name": "曲绘资源预算",
       "status": "passed",
-      "evidence": "492 张曲绘全部 ≤30KB"
+      "evidence": "501 张曲绘全部 ≤30KB"
     },
     {
       "name": "部署与 Functions 预留",

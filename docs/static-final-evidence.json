@@ -1,32 +1,32 @@
 {
   "round": "t24-static",
-  "generatedAt": "2026-09-21T05:37:12.568Z",
+  "generatedAt": "2026-09-21T23:08:20.826Z",
   "historicalBrowserEvidence": "unavailable/overwritten",
   "browserLimitations": "本轮只执行 Node 静态产物验收；历史 Chrome evidence 不可恢复且不作为支持证据。Chrome/CDP harness 生命周期不稳定，未假称浏览器结果。",
   "counts": {
-    "songs": 500,
-    "detailPages": 500,
-    "totalHtml": 511,
-    "scriptTags": 511,
-    "pagesContainingScript": 511
+    "songs": 503,
+    "detailPages": 503,
+    "totalHtml": 514,
+    "scriptTags": 514,
+    "pagesContainingScript": 514
   },
   "expected": {
-    "totalHtml": 511,
-    "detailPages": 500,
-    "songs": 500
+    "totalHtml": 514,
+    "detailPages": 503,
+    "songs": 503
   },
   "checks": [
     {
       "name": "总 HTML 数",
       "pass": true,
-      "actual": 511,
-      "expected": 511
+      "actual": 514,
+      "expected": 514
     },
     {
       "name": "详情页数等于 songs.json",
       "pass": true,
-      "actual": 500,
-      "expected": 500
+      "actual": 503,
+      "expected": 503
     },
     {
       "name": "产物存在 index.html",
@@ -431,7 +431,7 @@
       "expected": true
     },
     {
-      "name": "特殊 ID URL",
+      "name": "特殊 ID URL 路由",
       "pass": true,
       "actual": true,
       "expected": true
