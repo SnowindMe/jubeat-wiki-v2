@@ -3,7 +3,7 @@ import Layout from '../../components/Layout.astro';
 import ChartPreview from '../../components/ChartPreview.astro';
 import { songs, jubility, diffLabels, display, songHref, songPathId, sourceLabel, meta } from '../../lib/data';
 import { conflictsForSong, conflictMeta } from '../../scripts/data-conflicts.js';
-import { loadMemoIndex, memoForSong } from '../../lib/memo-data.js';
+import { loadMczIndex } from '../../lib/mcz-index.js';
 export function getStaticPaths() { return songs.map(song => ({ params: { songId: songPathId(song.songId) }, props: { song } })); }
 const { song } = Astro.props;
 const index = songs.findIndex(item => item.songId === song.songId);
@@ -15,11 +15,15 @@ const jubi = jubility.entries.filter(entry => entry.songId === song.songId);
 const fieldConflicts = conflictsForSong(song.songId);
 const sourceFor = (field: string) => song.fieldSources?.[field as keyof typeof song.fieldSources] ?? song.sources[0] ?? 'unknown';
 
-// 谱面 memo（可选）：构建时载入，无数据时预览按钮不出现
-const memoIndex = loadMemoIndex();
-const memoCharts = memoForSong(memoIndex, song);
+// 谱面数据源：构建期只查索引（songId -> CDN .mcz 地址），不下载任何谱面文件。
+// 索引没命中的曲目也照常渲染预览容器：浏览器会用全量清单再兜底找一次
+// （src/lib/mcz-match.js），所以「仓库里有没有」最终由前端说了算。
+const mczIndex = loadMczIndex();
+const mczEntry = mczIndex[String(song.songId)] ?? null;
+const mczUrl = mczEntry?.url ?? null;
 ---
-<Layout title={song.title} description={`${song.title} 的谱面难度、来源、解禁与考据资料。`} section="songs">
+
+<Layout title={`${song.title} 的谱面难度、来源、解禁与考据资料。`} description={`${song.title} 的谱面难度、来源、解禁与考据资料。`} section="songs">
   <nav class="crumb" aria-label="面包屑">
     <a href="/songs/">曲目库</a><span class="crumb__sep" aria-hidden="true">/</span><span aria-current="page">{song.title}</span>
   </nav>
@@ -50,42 +54,43 @@ const memoCharts = memoForSong(memoIndex, song);
       <h2 class="wp-h2">谱面难度<span class="wp-h2__note">每行标注字段来源</span></h2>
       <div class="table-scroll" tabindex="0" aria-label="谱面难度表，可横向滚动">
         <table>
-          <thead><tr><th scope="col">难度</th><th scope="col">等级</th><th scope="col">原始标记</th><th scope="col">NOTE 数</th><th scope="col">字段来源</th>{memoCharts && <th scope="col">铺面</th>}</tr></thead>
+          <thead><tr><th scope="col">难度</th><th scope="col">等级</th><th scope="col">原始标记</th><th scope="col">NOTE 数</th><th scope="col">字段来源</th><th scope="col">铺面</th></tr></thead>
           <tbody>{diffs.map(diff => <tr id={`chart-${diff}`}>
             <th scope="row"><span class="w-difficulty" data-difficulty={diff}>{diffLabels[diff]}</span></th>
             <td class="cell-num">{display(song.levels[diff], '未上线')}</td>
             <td>{display(song.levelMarks[diff])}</td>
             <td class="cell-num">{display(song.notecounts?.[noteKey[diff]])}</td>
             <td>{sourceLabel(sourceFor(diff))}</td>
-            {memoCharts && <td class="cell-act">
-              {memoCharts[diff]
-                ? <a class="jp-jump w-btn" href={`#preview-${diff}`} data-jp-jump={diff}>▶ 预览</a>
-                : <span class="jp-none" title="该难度暂无谱面数据">—</span>}
-            </td>}
+            <td class="cell-act">
+              <a class="jp-jump w-btn" href={`#preview-${diff}`} data-jp-jump={diff}>▶ 预览</a>
+            </td>
           </tr>)}</tbody>
         </table>
       </div>
       <p class="jp-note">
-        铺面数据来自 SONICY / COSMOS memo（第三方谱面资料），仅供查阅与练谱参考。
+        铺面数据来自 .mcz 谱面包（Malody 格式，第三方谱面资料），仅供查阅与练谱参考。谱面、音频与曲绘在点击预览时从 CDN 按需加载。
       </p>
     </section>
 
-    {memoCharts && <section class="w-panel" id="preview">
-      <h2 class="wp-h2">铺面预览<span class="wp-h2__note">4×4 面板回放</span></h2>
+    <section class="w-panel" id="preview">
+      <h2 class="wp-h2">铺面预览<span class="wp-h2__note">4×4 面板回放 · 按需加载</span></h2>
       <div class="jp-grid">
-        {diffs.map(diff => memoCharts[diff] && (
+        {diffs.map(diff => (
           <div class="jp-slot" id={`preview-${diff}`}>
             <ChartPreview
               chartId={`${song.songId}-${diff}`}
-              memo={memoCharts[diff].memo}
-              bpm={song.bpm}
+              songId={String(song.songId)}
+              songTitle={song.title}
+              mcz={mczUrl}
+              diff={diff}
               label={`${diffLabels[diff]} ${display(song.levels[diff], '')}`.trim()}
-              source={memoCharts[diff].source}
+              bpm={song.bpm}
+              level={display(song.levels[diff], null)}
             />
           </div>
         ))}
       </div>
-    </section>}
+    </section>
 
     {fieldConflicts.length > 0 && <section class="w-panel">
       <h2 class="wp-h2">字段差异说明<span class="wp-h2__note">多源冲突不静默合并</span></h2>

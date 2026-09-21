@@ -1,85 +1,277 @@
 ---
-// 铺面预览器：详情页内嵌的 4x4 面板回放
-// - 谱面 memo 文本以 JSON 形式内联到 <script type="application/json">，无需额外请求
-// - 无 JS 时：面板按空态渲染，控件隐藏，读屏仍可读到谱面统计（音符数/小节数）
-import { parseMemo } from '../lib/memo-parser.js';
+// 铺面预览器：详情页内嵌的 4x4 面板回放 + 音频同步
+//
+// 数据模型（运行时从 CDN 加载，无构建期预下载）：
+//   - 页面只输出空壳：4x4 面板 + 一个「加载预览」按钮
+//   - 用户点按钮后，chart-player.js 用 HTTP Range 读远端 .mcz 的中央目录与
+//     三难度 .mc（约 9 KB），再把 bgm.ogg 解成 AudioBuffer（波形 / BPM / 精确时钟）
+//   - 解压用浏览器原生 DecompressionStream('deflate-raw')
+//
+// mcz 为空时也照常渲染：构建期索引没命中，交给浏览器用全量清单再找一次
+// （src/lib/mcz-match.js 的 findMczForTitle）。找不到才显示「暂无谱面」。
+//
+// 无 JS 时：面板空态 + 统计文字保留，控件与按钮不渲染（静态可读）
 
 interface Props {
   chartId: string;
-  memo: string;
-  bpm: number | string | null;
+  /** 曲目 id（前端兜底匹配时上报用） */
+  songId?: string;
+  /** 曲目标题：构建期索引没命中时，浏览器拿它去全量清单里找谱面 */
+  songTitle?: string;
+  /** 该难度的 .mcz CDN 地址；为空时由前端兜底匹配 */
+  mcz?: string | null;
+  /** 难度代号小写：bsc / adv / ext */
+  diff: string;
   label: string;
-  source?: string;
+  /** 构建期已知的统计（无 JS 也能读到） */
+  noteCount?: number | null;
+  holdCount?: number | null;
+  tapCount?: number | null;
+  bpm?: number | string | null;
+  level?: string | number | null;
 }
 
-const { chartId, memo, bpm, label, source } = Astro.props;
+const {
+  chartId,
+  songId = '',
+  songTitle = '',
+  mcz = null,
+  diff,
+  label,
+  noteCount = null,
+  holdCount = null,
+  tapCount = null,
+  bpm = null,
+  level = null,
+} = Astro.props;
 
-// 构建时解析一次，用于展示统计与无 JS 兜底
-let stats = null;
-let parseError = null;
-try {
-  const p = parseMemo(memo);
-  stats = p.stats;
-} catch (err) {
-  parseError = (err as Error).message;
-}
-
-const payload = JSON.stringify({ memo, bpm, label });
+const notes = noteCount ?? (tapCount != null || holdCount != null ? (tapCount ?? 0) + (holdCount ?? 0) : null);
+// 速率档位：谱面练习常用区间
+const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 ---
 
-<div class="jp" data-chart-id={chartId} data-state="idle">
+<div
+  class="jp"
+  data-chart-id={chartId}
+  data-song-id={songId}
+  data-song-title={songTitle}
+  data-mcz={mcz ?? ''}
+  data-diff={diff}
+  data-bpm={bpm ?? ''}
+  data-state="idle"
+>
   <div class="jp-head">
     <span class="jp-label">{label}</span>
-    <span class="jp-readout">0.00 / 0.00 s</span>
+    <span class="jp-readout">0.00 / -- s</span>
   </div>
 
-  <div class="jp-pad" role="img" aria-label={`${label} 铺面 4x4 预览`}>
-    <span class="jp-key" data-key="1"></span><span class="jp-key" data-key="2"></span>
-    <span class="jp-key" data-key="3"></span><span class="jp-key" data-key="4"></span>
-    <span class="jp-key" data-key="5"></span><span class="jp-key" data-key="6"></span>
-    <span class="jp-key" data-key="7"></span><span class="jp-key" data-key="8"></span>
-    <span class="jp-key" data-key="9"></span><span class="jp-key" data-key="10"></span>
-    <span class="jp-key" data-key="11"></span><span class="jp-key" data-key="12"></span>
-    <span class="jp-key" data-key="13"></span><span class="jp-key" data-key="14"></span>
-    <span class="jp-key" data-key="15"></span><span class="jp-key" data-key="16"></span>
+  <div class="jp-stage">
+    <div class="jp-pad" role="img" aria-label={`${label} 铺面 4x4 预览`}>
+      <span class="jp-key" data-key="1"></span><span class="jp-key" data-key="2"></span>
+      <span class="jp-key" data-key="3"></span><span class="jp-key" data-key="4"></span>
+      <span class="jp-key" data-key="5"></span><span class="jp-key" data-key="6"></span>
+      <span class="jp-key" data-key="7"></span><span class="jp-key" data-key="8"></span>
+      <span class="jp-key" data-key="9"></span><span class="jp-key" data-key="10"></span>
+      <span class="jp-key" data-key="11"></span><span class="jp-key" data-key="12"></span>
+      <span class="jp-key" data-key="13"></span><span class="jp-key" data-key="14"></span>
+      <span class="jp-key" data-key="15"></span><span class="jp-key" data-key="16"></span>
+    </div>
+
+    <div class="jp-gate">
+      <button type="button" class="jp-load w-btn">▶ 加载预览</button>
+      <span class="jp-status">从 CDN 按需读取谱面、音频与曲绘</span>
+    </div>
   </div>
 
-  <div class="jp-controls">
+  <div class="jp-controls" hidden>
     <button type="button" class="jp-play w-btn">播放</button>
     <button type="button" class="jp-reset w-btn">重置</button>
+    <label class="jp-rate">
+      <span class="jp-rate-label">速率</span>
+      <select class="jp-rate-select" aria-label="播放速率">
+        {RATES.map((r) => <option value={String(r)} selected={r === 1}>{r.toFixed(2).replace(/0$/, '')}×</option>)}
+      </select>
+    </label>
+  </div>
+
+  <div class="jp-timeline">
+    <canvas class="jp-wave" width="1200" height="72" aria-hidden="true"></canvas>
     <input class="jp-scrub" type="range" min="0" max="1000" value="0" aria-label="铺面播放进度" />
   </div>
 
   <p class="jp-meta">
-    {stats
-      ? <>小节 {stats.measureCount} · 音符 {stats.noteCount} · 时刻组 {stats.groupCount}{source ? <> · 来源 {source}</> : null}</>
-      : <span class="jp-err">谱面解析失败{parseError ? `：${parseError}` : ''}</span>}
+    {notes != null
+      ? <>音符 {notes}{holdCount != null ? `（按键 ${tapCount ?? '-'} · 长押 ${holdCount}）` : null}</>
+      : <span class="jp-note-dim">谱面数据将在加载后显示</span>}
+    {level != null && <> · Lv {level}</>}
+    <span class="jp-audio"></span>
   </p>
 </div>
 
-<script type="application/json" id={`jp-data-${chartId}`} set:html={payload}></script>
-
 <style>
-/* 组件自带样式（Astro scoped）：务必放在本文件，
+/* 组件自带样式（Astro scoped）：必须放在本文件，
    放在父页面的 <style> 里不会命中本组件的元素。 */
-.jp{display:grid;gap:var(--w-s-3);border:1px solid var(--w-seam);border-radius:var(--w-r-md);background:var(--w-grad-panel);box-shadow:var(--w-shadow-card);padding:var(--w-s-4)}
-.jp[data-state="error"]{border-color:var(--w-hit)}
+.jp {
+  display: grid;
+  gap: var(--w-s-3);
+  border: 1px solid var(--w-seam);
+  border-radius: var(--w-r-md);
+  background: var(--w-grad-panel);
+  box-shadow: var(--w-shadow-card);
+  padding: var(--w-s-4);
+}
+.jp[data-state="error"] { border-color: var(--w-hit); }
+.jp[data-state="playing"] { border-color: var(--w-hit, var(--w-seam)); }
 
-.jp-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--w-s-2)}
-.jp-label{color:var(--w-ink);font-family:var(--w-font-display);font-size:var(--w-fs-base);font-weight:800}
-.jp-readout{color:var(--w-muted);font-family:var(--w-font-data);font-size:var(--w-fs-micro)}
+.jp-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--w-s-2); }
+.jp-label { color: var(--w-ink); font-family: var(--w-font-display); font-size: var(--w-fs-base); font-weight: 800; }
+.jp-readout { color: var(--w-muted); font-family: var(--w-font-data); font-size: var(--w-fs-micro); }
 
-.jp-pad{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:6px;aspect-ratio:1/1;width:100%;padding:8px;border-radius:var(--w-r-sm);background:var(--w-panel-2);box-sizing:border-box}
-.jp-key{display:block;border-radius:var(--w-r-xs);background:var(--w-panel);border:1px solid var(--w-seam-soft);transition:background-color 90ms linear,box-shadow 90ms linear,transform 90ms linear}
-.jp-key.is-hit{background:var(--w-hit);border-color:var(--w-hit);box-shadow:0 0 0 2px var(--w-hit-wash);transform:scale(.94)}
+/* 舞台：曲绘作为背景，加载后由 --jp-cover 注入 */
+.jp-stage { position: relative; border-radius: var(--w-r-sm); overflow: hidden; }
+.jp.has-cover .jp-pad { position: relative; z-index: 1; }
 
-.jp-controls{display:flex;align-items:center;gap:var(--w-s-2)}
-.jp-scrub{flex:1;min-width:0;accent-color:var(--w-hit)}
-.jp-meta{margin:0;color:var(--w-muted);font-size:var(--w-fs-micro)}
-.jp-err{color:var(--w-hit-deep)}
+.jp-pad {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  gap: 6px;
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  padding: 8px;
+  border-radius: var(--w-r-sm);
+  background: var(--w-panel-2);
+  box-sizing: border-box;
+}
+/* 有曲绘时：面板半透明压在曲绘上 */
+.jp.has-cover .jp-pad { background: color-mix(in oklab, var(--w-panel-2) 72%, transparent); }
 
-/* 无 JS：隐藏播放控件，保留面板空态与统计文字（静态可读） */
-:global(html:not(.js)) .jp-controls{display:none}
-:global(html:not(.js)) .jp-pad{opacity:.72}
-@media(prefers-reduced-motion:reduce){.jp-key{transition:none}}
+.jp-key {
+  position: relative;
+  display: block;
+  border-radius: var(--w-r-xs);
+  background: var(--w-panel);
+  border: 1px solid var(--w-seam-soft);
+  overflow: hidden;
+  --jp-anim: 0;
+  --jp-hold: 0;
+}
+
+/* ---- tap：外圈从外向内收缩到格内 ----
+   --jp-anim: 0(未激活/初始大圈) .. 1(已收缩到位=命中) */
+.jp-key.is-tap {
+  background: color-mix(in oklab, var(--w-hit) calc(var(--jp-anim) * 100%), var(--w-panel));
+  border-color: color-mix(in oklab, var(--w-hit) calc(var(--jp-anim) * 100%), var(--w-seam-soft));
+  box-shadow: 0 0 calc(var(--jp-anim) * 10px) var(--w-hit-wash);
+  transform: scale(calc(0.97 + var(--jp-anim) * 0.06));
+}
+/* 外圈：从贴满整格一路收缩到中心小圈，同时渐隐 —— 对照官方「快门收束」手感。
+   注意 .jp-key 有 overflow:hidden，所以用正 inset 在格内收缩，不能用负值外扩。 */
+.jp-key.is-tap::before {
+  content: "";
+  position: absolute;
+  inset: calc(var(--jp-anim) * 42%);
+  border-radius: var(--w-r-xs);
+  border: 2px solid var(--w-hit);
+  background: color-mix(in oklab, var(--w-hit) 22%, transparent);
+  opacity: calc((1 - var(--jp-anim) * 0.6) * 0.95);
+  pointer-events: none;
+}
+
+/* ---- hold：按下 -> 三角朝起点收拢 -> 持续按住（发光）-> 松开收合 ----
+   长押全程停在起点格上，不跨格移动。
+   --jp-hold: 0(刚开始收拢) .. 1(已收拢=按住态) */
+.jp-key.is-fold,
+.jp-key.is-held {
+  background: var(--w-hit);
+  border-color: var(--w-hit);
+}
+/* 楔形三角：尖端固定在左侧（指向起点），尾端随 --jp-hold 向左收拢 */
+.jp-key.is-fold::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--w-hit) 95%, white) 0%,
+    color-mix(in oklab, var(--w-hit) 55%, transparent) 100%
+  );
+  clip-path: polygon(
+    0% 50%,
+    calc(100% - var(--jp-hold) * 100%) 0%,
+    calc(100% - var(--jp-hold) * 100%) 100%
+  );
+  filter: drop-shadow(0 0 2px var(--w-hit-wash));
+}
+/* 收拢完成后进入按住态：均匀发光，不再有三角 */
+.jp-key.is-held { box-shadow: 0 0 0 2px var(--w-hit-wash), 0 0 12px var(--w-hit-wash); }
+/* 到终点后的收合（复用 tap 的动画变量） */
+.jp-key.is-closing {
+  background: color-mix(in oklab, var(--w-hit) calc(var(--jp-anim) * 100%), var(--w-panel));
+  border-color: color-mix(in oklab, var(--w-hit) calc(var(--jp-anim) * 100%), var(--w-seam-soft));
+  transform: scale(calc(0.97 + var(--jp-anim) * 0.06));
+}
+
+/* 曲绘背景层：加载后才有内容 */
+.jp.has-cover .jp-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--jp-cover);
+  background-size: cover;
+  background-position: center;
+  filter: blur(10px) saturate(0.9) brightness(0.55);
+  transform: scale(1.12);
+}
+
+/* 加载门 */
+.jp-gate {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: var(--w-s-2);
+  justify-items: center;
+  text-align: center;
+  padding: var(--w-s-3);
+  background: color-mix(in oklab, var(--w-ink) 42%, transparent);
+  border-radius: var(--w-r-sm);
+}
+.jp-status { color: #fff; font-size: var(--w-fs-micro); text-shadow: 0 1px 3px rgb(0 0 0 / 0.7); }
+
+.jp-controls { display: flex; align-items: center; gap: var(--w-s-2); flex-wrap: wrap; }
+.jp-controls[hidden] { display: none; }
+.jp-rate { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+.jp-rate-label { color: var(--w-muted); font-size: var(--w-fs-micro); }
+.jp-rate-select {
+  background: var(--w-panel);
+  color: var(--w-ink);
+  border: 1px solid var(--w-seam-soft);
+  border-radius: var(--w-r-xs);
+  padding: 2px 4px;
+  font-family: var(--w-font-data);
+  font-size: var(--w-fs-micro);
+}
+
+/* 时间轴：波形画在进度条底下，两者共用同一横向尺度 */
+.jp-timeline { position: relative; display: grid; gap: 2px; }
+.jp-wave {
+  display: block;
+  width: 100%;
+  height: 36px;
+  border-radius: var(--w-r-xs);
+  background: var(--w-panel-2);
+}
+.jp-scrub { width: 100%; min-width: 0; accent-color: var(--w-hit); }
+
+.jp-meta { margin: 0; color: var(--w-muted); font-size: var(--w-fs-micro); }
+.jp-note-dim { color: var(--w-dim); }
+.jp-audio { color: var(--w-dim); }
+
+/* 无 JS：隐藏交互控件，保留面板空态（静态可读） */
+:global(html:not(.js)) .jp-controls { display: none; }
+:global(html:not(.js)) .jp-timeline { display: none; }
+:global(html:not(.js)) .jp-gate { display: none; }
+:global(html:not(.js)) .jp-pad { opacity: 0.72; }
+@media (prefers-reduced-motion: reduce) { .jp-key { transition: none; } }
 </style>
