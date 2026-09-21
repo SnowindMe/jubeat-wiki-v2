@@ -1,12 +1,107 @@
 ---
 import Layout from '../../components/Layout.astro';
-import SongBits from '../../components/SongBits.astro';
-import { songs, songHref } from '../../lib/data';
+import PageIntro from '../../components/PageIntro.astro';
+import { songs, songHref, diffLabels, display } from '../../lib/data';
 const origins = [...new Set(songs.map(song => song.origin).filter(Boolean))].sort();
 const pools = [...new Set(songs.map(song => song.unlockPool).filter(Boolean))].sort();
 const sources = [...new Set(songs.flatMap(song => song.sources))].sort();
 const source = Astro.url.searchParams.get('source') ?? '';
 const shownSongs = source ? songs.filter(song => song.sources.includes(source)) : songs;
+const diffs = ['bsc', 'adv', 'ext'] as const;
+const fullCharts = songs.filter(s => s.chartCount === 3).length;
+const withTrivia = songs.filter(s => s.hasRemywiki).length;
+const pickUps = songs.filter(s => s.isPickUp).length;
+const noCover = songs.filter(s => !s.cover).length;
 ---
-<Layout title="曲目库" description={`收录 ${songs.length} 首 jubeat 音乐魔方曲目，提供谱面等级、来源和解禁资料。`} section="songs"><div class="crumb"><a href="/songs/" aria-current="page">曲目库</a></div><header class="page-heading"><div><h1>曲目库</h1><p>共 {songs.length} 首{source ? ` / 当前来源筛选：${source}` : ''}。表格正文直接静态输出，筛选仅作为可选增强。</p></div><strong>{shownSongs.length} 首</strong></header><form class="w-panel filters" action="/songs/"><div class="w-filter-bar"><label>检索<input class="w-field" name="q" placeholder="曲名 / artist"/></label><label>难度<select class="w-field" name="level"><option value="">所有难度</option><option value="bsc">BASIC</option><option value="adv">ADVANCED</option><option value="ext">EXTREME</option></select></label><label>原机种<select class="w-field" name="origin"><option value="">所有原机种</option>{origins.map(origin => <option value={origin!}>{origin}</option>)}</select></label><label>解禁池<select class="w-field" name="pool"><option value="">所有解禁池</option>{pools.map(pool => <option value={pool!}>{pool}</option>)}</select></label><label>来源<select class="w-field" name="source"><option value="">所有来源</option>{sources.map(item => <option value={item} selected={item === source}>{item}</option>)}</select></label></div><button>应用筛选</button></form><section class="w-panel overview"><h2>统计概览</h2><p>完整三谱面 {songs.filter(s => s.chartCount === 3).length} 首 · 有考据条目 {songs.filter(s => s.hasRemywiki).length} 首 · PICK UP {songs.filter(s => s.isPickUp).length} 首 · 无曲绘 {songs.filter(s => !s.cover).length} 首</p></section><section aria-labelledby="result-title"><h2 id="result-title">全部结果</h2><div class="song-list">{shownSongs.map(song => <article class="song-row w-card w-hit-target"><SongBits song={song} compact={true}/><div class="song-copy"><h3><a href={songHref(song.songId)}>{song.title}</a>{song.hasAltChart && <small> [2] 谱面</small>}</h3><p>{song.artist ?? '暂无 artist 数据'}</p><dl><div><dt>原机种</dt><dd>{song.origin}</dd></div><div><dt>解禁池</dt><dd>{song.unlockPool ?? '无需充能'}</dd></div><div><dt>上线批次</dt><dd>{song.addedBatch ?? '暂无记录'}</dd></div></dl></div></article>)}</div></section></Layout>
-<style>.crumb{margin-top:var(--w-s-5);font-size:var(--w-fs-sm)}.page-heading{display:flex;justify-content:space-between;align-items:end;margin:var(--w-s-6) 0}.page-heading h1{font-family:var(--w-font-display);font-size:var(--w-fs-3xl);margin:0}.page-heading p{color:var(--w-ink-soft)}.page-heading strong{font-family:var(--w-font-data);font-size:var(--w-fs-xl);color:var(--w-hit-deep)}.filters label{display:grid;gap:var(--w-s-1);font-size:var(--w-fs-sm);font-weight:700}.filters button{min-height:var(--w-tap);margin-top:var(--w-s-3);border:1px solid var(--w-hit-deep);border-radius:var(--w-r-sm);background:var(--w-hit);color:var(--w-on-hit);font-weight:800;padding:0 var(--w-s-4)}.overview{margin-top:var(--w-s-4)}.overview h2{margin-top:0;font-family:var(--w-font-display)}.song-list{display:grid;gap:var(--w-s-3)}.song-row{display:grid;grid-template-columns:104px 1fr;gap:var(--w-s-4);padding:var(--w-s-3)}.song-row .cover{max-width:104px}.song-copy h3{margin:0;font-size:var(--w-fs-lg)}.song-copy p{margin:var(--w-s-1) 0;color:var(--w-ink-soft)}dl{display:flex;flex-wrap:wrap;gap:var(--w-s-3);margin:var(--w-s-2) 0 0;font-size:var(--w-fs-sm)}dt{color:var(--w-muted)}dd{margin:0;font-family:var(--w-font-data)}@media(max-width:520px){.page-heading{align-items:start;gap:var(--w-s-2);flex-direction:column}.song-row{grid-template-columns:76px 1fr}.song-row .cover{max-width:76px}.song-row .difficulty-list{display:none}dl{display:grid;grid-template-columns:1fr 1fr}}</style>
+<Layout title="曲目库" description={`收录 ${songs.length} 首 jubeat 音乐魔方曲目，提供谱面等级、来源和解禁资料。`} section="songs">
+  <nav class="crumb" aria-label="面包屑"><a href="/songs/" aria-current="page">曲目库</a></nav>
+  <PageIntro eyebrow="SONGS / 全量收录" title="曲目库" lead={`共 ${songs.length} 首曲目。卡片正文直接静态输出，筛选仅作为可选增强，未启用 JavaScript 也能按曲名进入每一首的资料页。`} note={source ? `当前按来源筛选：${source}` : undefined}/>
+
+  <section class="w-panel filters" aria-label="筛选">
+    <form action="/songs/">
+      <div class="w-filter-bar">
+        <label class="filters__label">检索<input class="w-field" name="q" placeholder="曲名 / artist"/></label>
+        <label class="filters__label">难度<select class="w-field" name="level"><option value="">所有难度</option><option value="bsc">BASIC</option><option value="adv">ADVANCED</option><option value="ext">EXTREME</option></select></label>
+        <label class="filters__label">原机种<select class="w-field" name="origin"><option value="">所有原机种</option>{origins.map(origin => <option value={origin!}>{origin}</option>)}</select></label>
+        <label class="filters__label">解禁池<select class="w-field" name="pool"><option value="">所有解禁池</option>{pools.map(pool => <option value={pool!}>{pool}</option>)}</select></label>
+        <label class="filters__label">来源<select class="w-field" name="source"><option value="">所有来源</option>{sources.map(item => <option value={item} selected={item === source}>{item}</option>)}</select></label>
+      </div>
+      <button class="wp-btn wp-btn--solid filters__submit">应用筛选</button>
+    </form>
+  </section>
+
+  <section class="section" aria-labelledby="overview-title">
+    <h2 class="wp-h2" id="overview-title">统计概览<span class="wp-h2__note">按来源与完整度统计</span></h2>
+    <div class="overview">
+      <div class="ov w-card"><strong>{fullCharts}</strong><span>完整三谱面</span></div>
+      <div class="ov w-card"><strong>{withTrivia}</strong><span>有考据条目</span></div>
+      <div class="ov w-card"><strong>{pickUps}</strong><span>PICK UP 曲目</span></div>
+      <div class="ov w-card"><strong>{noCover}</strong><span>无曲绘</span></div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="result-title">
+    <h2 class="wp-h2" id="result-title">全部结果<span class="wp-h2__note">显示 {shownSongs.length} 首</span></h2>
+    <div class="song-grid">
+      {shownSongs.map(song => <article class="song w-card">
+        <a class="song__cover w-cover-slot" href={songHref(song.songId)} aria-label={`${song.title} 详情`}>
+          {song.cover ? <img src={song.cover} alt={`${song.title} 曲绘`} loading="lazy"/> : <div class="song__nopad w-pad-4x4" aria-hidden="true">{Array.from({length:16}).map(() => <span class="w-pad-key"></span>)}</div>}
+        </a>
+        <div class="song__body">
+          <h3 class="song__title"><a href={songHref(song.songId)}>{song.title}</a>{song.hasAltChart && <span class="wp-badge wp-badge--muted">[2]</span>}</h3>
+          <p class="song__artist">{song.artist ?? '暂无 artist 数据'}</p>
+          <div class="song__diffs">{diffs.map(diff => <span class="w-difficulty" data-difficulty={diff}>{diffLabels[diff]} <b>{display(song.levels[diff], '—')}</b></span>)}</div>
+          <dl class="song__meta">
+            <div><dt>原机种</dt><dd>{song.origin}</dd></div>
+            <div><dt>解禁池</dt><dd>{song.unlockPool ?? '无需充能'}</dd></div>
+            <div><dt>批次</dt><dd>{song.addedBatch ?? '暂无记录'}</dd></div>
+          </dl>
+        </div>
+      </article>)}
+    </div>
+  </section>
+</Layout>
+<style>
+.crumb{margin:var(--w-s-2) 0 var(--w-s-3);font-size:var(--w-fs-sm)}
+.crumb a{color:var(--w-muted);text-decoration:none}
+.crumb a[aria-current=page]{color:var(--w-ink);font-weight:700}
+
+.filters{padding:var(--w-s-5)}
+.filters__label{display:grid;gap:var(--w-s-1);color:var(--w-ink);font-size:var(--w-fs-xs);font-weight:700}
+.filters .w-filter-bar{grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr))}
+.filters__submit{margin-top:var(--w-s-4)}
+
+.section{margin-top:var(--w-s-7)}
+.overview{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--w-s-3)}
+.ov{display:grid;gap:2px;padding:var(--w-s-4) var(--w-s-5)}
+.ov strong{color:var(--w-ink);font-family:var(--w-font-display);font-size:var(--w-fs-stat);font-weight:800;line-height:1.1}
+.ov span{color:var(--w-muted);font-size:var(--w-fs-xs)}
+
+.song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,236px),1fr));gap:var(--w-s-4)}
+.song{display:grid;grid-template-rows:auto 1fr;gap:0;overflow:hidden;padding:0}
+.song__cover{position:relative;aspect-ratio:1;border-radius:0;background:var(--w-panel-2)}
+.song__cover img{width:100%;height:100%;object-fit:cover}
+.song__nopad{width:56%;border:0;background:transparent;opacity:.5}
+.song__body{display:grid;align-content:start;gap:var(--w-s-2);padding:var(--w-s-4)}
+.song__title{display:flex;align-items:center;gap:var(--w-s-2);margin:0;font-family:var(--w-font-display);font-size:var(--w-fs-lg);font-weight:800;line-height:1.3}
+.song__title a{color:var(--w-ink);text-decoration:none}
+.song__title a:hover{color:var(--w-hit-deep)}
+.song__artist{margin:0;color:var(--w-muted);font-size:var(--w-fs-xs);line-height:1.5}
+.song__diffs{display:flex;flex-wrap:wrap;gap:var(--w-s-1)}
+.song__diffs b{font-family:var(--w-font-display)}
+.song__meta{display:grid;gap:var(--w-s-1);margin:var(--w-s-1) 0 0;padding-top:var(--w-s-2);border-top:1px solid var(--w-seam-soft);font-size:var(--w-fs-xs)}
+.song__meta > div{display:flex;align-items:baseline;gap:var(--w-s-2)}
+.song__meta dt{flex:none;min-width:3.5em;color:var(--w-muted)}
+.song__meta dd{margin:0;color:var(--w-ink-soft);font-family:var(--w-font-data);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+@media(max-width:768px){
+  .overview{grid-template-columns:repeat(2,1fr)}
+  .song-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,158px),1fr));gap:var(--w-s-3)}
+  .song__body{padding:var(--w-s-3);gap:var(--w-s-1)}
+  .song__title{font-size:var(--w-fs-base)}
+  .song__meta{display:none}
+}
+@media(max-width:420px){
+  .song-grid{grid-template-columns:repeat(2,1fr)}
+}
+</style>

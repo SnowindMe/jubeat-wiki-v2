@@ -6,6 +6,18 @@ const diffs = ['bsc', 'adv', 'ext'] as const;
 const sourceFor = (field: string) => song.fieldSources?.[field as keyof typeof song.fieldSources] ?? song.sources[0] ?? 'unknown';
 ---
 <div class="cover w-cover-slot">{song.cover ? <img src={song.cover} alt={`${song.title} 曲绘`} loading={compact ? 'lazy' : undefined}/> : <div class="missing-pad w-pad-4x4" aria-label="暂无曲绘">{Array.from({length:16}).map(() => <span class="w-pad-key"></span>)}</div>}</div>
-<div class="difficulty-list">{diffs.map((diff) => <span class="w-difficulty" data-difficulty={diff}>{diffLabels[diff]} {display(song.levels[diff], '未上线')} <small>· {sourceLabel(sourceFor(diff))}</small></span>)}</div>
-{!compact && <details class="source-detail"><summary class="w-source-badge">字段来源</summary><ul><li>曲名：{sourceLabel(sourceFor('title'))}</li><li>Artist：{sourceLabel(sourceFor('artist'))}</li><li>BPM：{sourceLabel(sourceFor('bpm'))}</li><li>曲绘：{sourceLabel(sourceFor('cover'))}</li></ul></details>}
-<style>.cover{width:100%;max-width:320px}.cover img{width:100%;height:100%;object-fit:cover}.missing-pad{width:100%;padding:var(--w-s-2);border:0;background:transparent}.difficulty-list{display:flex;flex-wrap:wrap;gap:var(--w-s-1);margin-top:var(--w-s-2)}.w-difficulty small{font-weight:500}.source-detail{margin-top:var(--w-s-3)}.source-detail summary{width:max-content;cursor:pointer}.source-detail ul{margin:var(--w-s-2) 0 0;padding-left:var(--w-s-5);font-size:var(--w-fs-sm);color:var(--w-ink-soft)}</style>
+<div class="difficulty-list">{diffs.map((diff) => <span class="w-difficulty" data-difficulty={diff}>{diffLabels[diff]} <b>{display(song.levels[diff], '未上线')}</b><small>· {sourceLabel(sourceFor(diff))}</small></span>)}</div>
+{!compact && <details class="source-detail"><summary class="w-source-badge">字段来源</summary><ul><li><span>曲名</span>{sourceLabel(sourceFor('title'))}</li><li><span>Artist</span>{sourceLabel(sourceFor('artist'))}</li><li><span>BPM</span>{sourceLabel(sourceFor('bpm'))}</li><li><span>曲绘</span>{sourceLabel(sourceFor('cover'))}</li></ul></details>}
+<style>
+.cover{width:100%;max-width:320px}
+.cover img{width:100%;height:100%;object-fit:cover}
+.missing-pad{width:100%;padding:var(--w-s-2);border:0;background:transparent}
+.difficulty-list{display:flex;flex-wrap:wrap;gap:var(--w-s-1);margin-top:var(--w-s-3)}
+.w-difficulty b{font-family:var(--w-font-display);font-size:var(--w-fs-sm)}
+.w-difficulty small{font-weight:500;opacity:.8}
+.source-detail{margin-top:var(--w-s-3)}
+.source-detail summary{width:max-content;cursor:pointer}
+.source-detail ul{display:grid;gap:var(--w-s-1);margin:var(--w-s-3) 0 0;padding:0;list-style:none;font-size:var(--w-fs-sm);color:var(--w-ink-soft)}
+.source-detail li{display:flex;align-items:baseline;gap:var(--w-s-2)}
+.source-detail li span{min-width:4.5em;color:var(--w-muted);font-size:var(--w-fs-xs)}
+</style>
