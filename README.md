@@ -27,6 +27,25 @@ npm run build
 
 数据口径与缺口以 `data/data-meta.json`、`data/data-conflicts.json` 为准；字段缺失保持 `null`，不得把缺口推断成事实。
 
+## 数据从哪来
+
+上表这些数据存放在**私有仓库** [`SnowindMe/jubeat-wiki-data`](https://github.com/SnowindMe/jubeat-wiki-data)。
+构建前由 `scripts/fetch-data.mjs` 拉取，无需手工准备：
+
+```sh
+npm run fetch:data   # 需要 DATA_REPO_TOKEN；本地已有数据且无 token 时自动跳过
+npm run build        # prebuild 钩子会先调用 fetch:data
+```
+
+- 有 `DATA_REPO_TOKEN` → 浅克隆私有仓库并同步 `data/` 与 `public/jackets/`
+- 无 token 但本地已有数据 → 跳过（本地开发场景）
+- 无 token 且数据缺失 → **明确报错退出**，不会构建出空站
+
+`DATA_REPO_TOKEN` 必须是**细粒度 PAT**，只勾选该私有仓库、权限只给
+**Contents: Read-only**。Vercel 项目环境变量中已配置。
+
+**运维、架构决策与历史踩坑记录见 [`docs/PROJECT-NOTES.md`](docs/PROJECT-NOTES.md)。**
+
 ## 本地开发
 
 在本目录执行：
