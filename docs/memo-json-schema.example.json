@@ -1,0 +1,36 @@
+{
+  "_comment": "jubeat memo 谱面 JSON 规范（v1）",
+
+  "schema": 1,
+  "song": "天空の華",
+  "difficulty": "EXT",
+  "source": "cosmos-mywiki",
+  "url": "https://www.mywiki.cn/cosmosmemo/天空の華_(EXT)",
+  "bpm": "180",
+  "level": 10,
+  "declaredNotes": 817,
+  "declaredHolds": 70,
+
+  "measures": [
+    {
+      "no": 2,
+      "rows": [
+        { "grid": "□□①□", "axis": "①－－－", "hold": [null, null, null, null] },
+        { "grid": "□□□□", "axis": "－－－－", "hold": [null, null, "|", null] },
+        { "grid": "②□□□", "axis": "②－－－", "hold": [null, "―", "┼", "＜"] },
+        { "grid": "□□□□", "axis": "－－－－", "hold": [null, null, "∧", null] }
+      ]
+    }
+  ],
+
+  "_holds_comment": "长押坐标数组。按主人要求用数组明确表达，不靠三角反推。",
+  "holds": [
+    {
+      "_comment": "起点 小节2 行0 列2（键3）→ 终点 小节5 行0 列2（键3）",
+      "key": 3,
+      "from": { "measure": 2, "row": 0, "col": 2 },
+      "to": { "measure": 5, "row": 0, "col": 2 },
+      "tail": { "mark": "┼", "measure": 2, "row": 2, "col": 2, "side": "below" }
+    }
+  ]
+}

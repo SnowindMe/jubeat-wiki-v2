@@ -41,37 +41,85 @@ export function parseMemoFilename(file) {
 }
 
 /**
- * 读取全部 memo 并建立索引。
- * @returns {{ bySong: Map<string, {bsc?:Entry, adv?:Entry, ext?:Entry}>, count:number, files:string[] }}
+ * 读取全部谱面并建立索引。
+ * 支持两种文件：
+ *   - [歌名]-[难度]-[版本].json  含 hold 信息（推荐，抓取器当前输出）
+ *   - [歌名]-[难度]-[版本].txt   纯文本，无 hold（早期数据）
+ * 同难度下优先用 JSON。
+ * @returns {{ bySong: Map, count:number, files:string[], hasHold:number }}
  */
 export function loadMemoIndex() {
   const bySong = new Map();
   const files = [];
-  if (!existsSync(MEMO_DIR)) return { bySong, count: 0, files };
+  let hasHold = 0;
+  if (!existsSync(MEMO_DIR)) return { bySong, count: 0, files, hasHold };
 
   for (const f of readdirSync(MEMO_DIR)) {
-    if (!f.toLowerCase().endsWith('.txt') || f.startsWith('_')) continue;
+    if (f.startsWith('_')) continue;
+    const isJson = f.toLowerCase().endsWith('.json');
+    const isTxt = f.toLowerCase().endsWith('.txt');
+    if (!isJson && !isTxt) continue;
     const meta = parseMemoFilename(f);
     if (!meta) continue;
-    let memo;
+
+    let entry = null;
     try {
-      memo = readFileSync(path.join(MEMO_DIR, f), 'utf8');
+      const raw = readFileSync(path.join(MEMO_DIR, f), 'utf8');
+      if (isJson) {
+        const j = JSON.parse(raw);
+        if (!j.measures || !j.measures.length) continue;
+        // 把 JSON 的行结构转回解析器需要的文本 + holdStarts
+        const lines = [];
+        const holdStarts = [];
+        for (const m of j.measures) {
+          lines.push(String(m.no));
+          m.rows.forEach((r, rowIdx) => {
+            // 还原成可解析的文本行：铺面 + 可选节奏谱
+            lines.push(r.axis ? `${r.grid} |${r.axis}|` : r.grid);
+            (r.starts || []).forEach((isStart, col) => {
+              if (isStart) holdStarts.push({ measure: m.no, row: rowIdx, col });
+            });
+          });
+        }
+        // hold 标记（∨ ｜ 等）在 grid 里已被替换为 □，还原回标记以便解析器统计
+        const restored = j.measures.map((m) =>
+          m.rows.map((r) => {
+            const chars = [...r.grid];
+            (r.hold || []).forEach((mk, col) => {
+              if (mk) chars[col] = mk;
+            });
+            return r.axis ? `${chars.join('')} |${r.axis}|` : chars.join('');
+          }),
+        );
+        const text = [];
+        j.measures.forEach((m, i) => {
+          text.push(String(m.no));
+          text.push(...restored[i]);
+        });
+        entry = { ...meta, memo: text.join('\n'), holdStarts, file: f, json: j };
+        if (holdStarts.length) hasHold++;
+      } else {
+        if (!raw || raw.length < 40) continue;
+        entry = { ...meta, memo: raw, holdStarts: null, file: f };
+      }
     } catch {
       continue;
     }
-    if (!memo || memo.length < 40) continue;
+    if (!entry) continue;
 
     const key = normTitle(meta.title);
     if (!bySong.has(key)) bySong.set(key, {});
     const slot = bySong.get(key);
-    // 同一难度若已有 COSMOS（含 hold、准确度高），优先保留
+    // 同一难度：JSON 优先；同为 JSON 时 COSMOS 优先
     const prev = slot[meta.diff];
-    if (!prev || (prev.source !== 'cosmos' && meta.source === 'cosmos')) {
-      slot[meta.diff] = { ...meta, memo, file: f };
-    }
+    const better =
+      !prev ||
+      (prev.json == null && entry.json != null) ||
+      (prev.source !== 'cosmos' && meta.source === 'cosmos' && (prev.json != null) === (entry.json != null));
+    if (better) slot[meta.diff] = entry;
     files.push(f);
   }
-  return { bySong, count: files.length, files };
+  return { bySong, count: files.length, files, hasHold };
 }
 
 /** 为某首歌取各难度谱面 */

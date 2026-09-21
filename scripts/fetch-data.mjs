@@ -8,7 +8,7 @@
 //   no token, data present-> skip (local development already has the data)
 //   no token, data absent -> fail loudly instead of building an empty site
 import { execFileSync } from 'node:child_process';
-import { cp, mkdir, rm, access } from 'node:fs/promises';
+import { cp, mkdir, rm, access, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,12 +17,20 @@ const slug = 'SnowindMe/jubeat-wiki-data';
 const token = process.env.DATA_REPO_TOKEN;
 const staging = path.join(root, '.data-fetch');
 
-const exists = async target => { try { await access(target); return true; } catch { return false; } };
-const say = message => console.log(`[fetch-data] ${message}`);
+const exists = async (target) => {
+  try {
+    await access(target);
+    return true;
+  } catch {
+    return false;
+  }
+};
+const say = (message) => console.log(`[fetch-data] ${message}`);
 
 if (!token) {
   if (await exists(path.join(root, 'data/songs.json'))) {
     say('DATA_REPO_TOKEN 未设置，但本地已有数据，跳过拉取。');
+    await syncPublicIndex();
     process.exit(0);
   }
   console.error('[fetch-data] 缺少数据且未设置 DATA_REPO_TOKEN。');
@@ -33,7 +41,7 @@ if (!token) {
 
 // Never let the token reach a log: execFileSync would echo the URL on failure.
 const remote = `https://x-access-token:${token}@github.com/${slug}.git`;
-const redact = text => String(text).replaceAll(token, '***');
+const redact = (text) => String(text).replaceAll(token, '***');
 
 await rm(staging, { recursive: true, force: true });
 say('正在拉取私有数据仓库…');
@@ -65,19 +73,53 @@ await rm(jacketDest, { recursive: true, force: true });
 await mkdir(jacketDest, { recursive: true });
 if (await exists(jacketSrc)) await cp(jacketSrc, jacketDest, { recursive: true });
 
-// memo 谱面文本：同样整体同步，避免上游删除后本地残留。
-// 这些文件是谱面预览器的输入（src/lib/memo-data.js 读取 data/memo/*.txt）。
-// 缺失不是错误：没有谱面数据时预览器不渲染，站点其余部分照常工作。
-const memoSrc = path.join(dataSrc, 'memo');
-const memoDest = path.join(root, 'data', 'memo');
-await rm(memoDest, { recursive: true, force: true });
-let memoCount = 0;
-if (await exists(memoSrc)) {
-  await mkdir(memoDest, { recursive: true });
-  await cp(memoSrc, memoDest, { recursive: true });
-  memoCount = (await import('node:fs')).readdirSync(memoDest).filter((f) => f.endsWith('.txt')).length;
+// mcz 索引（data/mcz/index.json）：songId -> CDN 上的 .mcz 地址。
+// 构建期只需要它，不做任何谱面本体下载；浏览器在用户点预览时按需读取。
+const mczSrc = path.join(dataSrc, 'mcz');
+const mczDest = path.join(dataDest, 'mcz');
+if (await exists(mczSrc)) {
+  await rm(mczDest, { recursive: true, force: true });
+  await mkdir(mczDest, { recursive: true });
+  await cp(mczSrc, mczDest, { recursive: true });
 }
 
 await rm(staging, { recursive: true, force: true });
-const jackets = (await import('node:fs')).readdirSync(jacketDest).length;
-say(`完成：data/ 已同步，public/jackets/ ${jackets} 个文件，memo 谱面 ${memoCount} 份。`);
+
+const jackets = (await readdir(jacketDest)).length;
+let mczCount = 0;
+if (await exists(path.join(mczDest, 'index.json'))) {
+  try {
+    const idx = JSON.parse((await import('node:fs')).readFileSync(path.join(mczDest, 'index.json'), 'utf8'));
+    mczCount = Object.keys(idx).length;
+  } catch {
+    /* 索引损坏时不阻断构建，前端会回退到「无预览」 */
+  }
+}
+
+// 前端需要索引才能按 songId 找到 CDN 地址，所以同时放到 public/ 下。
+await syncPublicIndex();
+
+say(`完成：data/ 已同步，public/jackets/ ${jackets} 个文件，mcz 索引 ${mczCount} 首。`);
+
+/** 把 data/mcz/index.json 同步到 public/data/mcz/index.json（前端运行时读取） */
+async function syncPublicIndex() {
+  const src = path.join(root, 'data', 'mcz', 'index.json');
+  const destDir = path.join(root, 'public', 'data', 'mcz');
+  if (!(await exists(src))) return;
+  await mkdir(destDir, { recursive: true });
+  await cp(src, path.join(destDir, 'index.json'));
+
+  // 全量清单：前端运行时用来给「构建期没匹配到谱面」的曲目兜底。
+  // 构建期索引是精确匹配的快路径；清单让浏览器能自己判断仓库里到底有没有这首。
+  // 字段精简成 d/n/s（目录 / 文件名 / 字节数），path 恒等于 dir + '/' + name，
+  // CDN 前缀由前端拼，省掉每条 URL 里重复的一长串。
+  const listSrc = path.join(root, 'data', 'mcz', '_list.json');
+  if (!(await exists(listSrc))) return;
+  try {
+    const list = JSON.parse(await readFile(listSrc, 'utf8'));
+    const slim = list.map((f) => ({ d: f.dir, n: f.name, s: f.size }));
+    await writeFile(path.join(destDir, 'list.json'), JSON.stringify(slim), 'utf8');
+  } catch (err) {
+    say(`警告：生成 mcz 清单失败（${err.message}），前端将只用构建期索引。`);
+  }
+}
