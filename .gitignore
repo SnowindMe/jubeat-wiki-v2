@@ -14,6 +14,9 @@ dist/
 *_probe_tmp*
 *_tmp.*
 
+# 备份文件（重写/迁移数据前留的旧版本，不入库）
+*.bak
+
 # 受版权保护的第三方数据（曲目清单、定数、Jubility、充能、考据、曲绘）
 # 仅保留代码与可公开的元数据结构。这些数据存放在私有仓库
 # SnowindMe/jubeat-wiki-data，构建前由 scripts/fetch-data.mjs 拉取。
@@ -31,6 +34,12 @@ public/jackets/
 # 由 scripts/fetch-memo.mjs 本机抓取生成，构建前经 fetch-data.mjs 从私有仓库同步
 data/memo/
 data/_memo_backup/
+
+# 谱面预览器素材（.mcz 解包产物：音频、曲绘为第三方受版权保护数据）
+# 由 scripts/fetch-mcz.mjs 生成到 data/chart-assets/，仅供本地对照，不进 public 也不入库
+data/chart/
+data/chart-assets/
+data/memo-hold/
 
 # 抓取用的 Chrome 临时 profile
 .memo-chrome-profile/

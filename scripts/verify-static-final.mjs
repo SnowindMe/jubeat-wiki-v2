@@ -18,7 +18,15 @@ await walk(dist);
 const relative = file => path.relative(dist, file).replaceAll('\\', '/');
 const htmlTexts = await Promise.all(htmlFiles.map(async file => ({ file: relative(file), text: await readFile(file, 'utf8') })));
 const scripts = htmlTexts.filter(page => /<script\b/i.test(page.text));
-check('总 HTML 数', htmlFiles.length, 511);
+// 总页数随曲库规模浮动：基线为固定页 + 每首曲目一个详情页。
+// 固定页 14 个（index/songs/jubility/unlock/versions/updates/gameplay/dans/guide/about/404 + 等），
+// 其余为 songs/<id>/index.html。这里断言「固定页 + 曲目数」等于实际 HTML 数。
+// 总页数随曲库规模浮动：基线为固定页 + 每首曲目一个详情页。
+// 固定页 11 个（index/songs/jubility/unlock/versions/updates/gameplay/dans/guide/about/404），
+// 其余为 songs/<id>/index.html。这里断言「固定页 + 曲目数」等于实际 HTML 数。
+// 注意：不要往 src/pages/ 加临时诊断页，否则这个数要跟着改（历史上就吃过这个亏）。
+const fixedPages = 11;
+check('总 HTML 数', htmlFiles.length, fixedPages + songs.length);
 const detailPages = htmlFiles.filter(file => /^songs[\\/](?:\d+|id-)[^\\/]+[\\/]index\.html$/.test(relative(file)));
 check('详情页数等于 songs.json', detailPages.length, songs.length);
 const required = ['index.html','songs/index.html','jubility/index.html','unlock/index.html','versions/index.html','updates/index.html','gameplay/index.html','dans/index.html','guide/index.html','about/index.html','404.html','sitemap-index.xml','search-index.json','robots.txt'];
@@ -26,9 +34,16 @@ for (const file of required) check(`产物存在 ${file}`, await exists(file), t
 check('脚本数量统计', scripts.length >= 1, true);
 check('含增强脚本的页面数', scripts.length >= 1, true);
 const home = await readDist('index.html'); const library = await readDist('songs/index.html'); const unlockHtml = await readDist('unlock/index.html'); const gameplay = await readDist('gameplay/index.html');
-const numeric = songs.find(song => /^\d+$/.test(song.songId)); const special = songs.find(song => !/^\d+$/.test(song.songId));
-const numericUrl = `songs/${pathId(numeric.songId)}/index.html`; const specialUrl = `songs/${pathId(special.songId)}/index.html`;
-const detail = await readDist(numericUrl); const specialDetail = await readDist(specialUrl);
+const numeric = songs.find(song => /^\d+$/.test(song.songId));
+// 曲库现全部为数字 ID，但 pathId() 仍须支持 title: 型 ID —— 用一个合成条目做单元断言，
+// 不依赖 songs.json 里恰好存在非数字 ID。
+const syntheticSpecial = { songId: 'title:glitterflatterscatter' };
+const numericUrl = `songs/${pathId(numeric.songId)}/index.html`;
+const hasSpecialId = songs.some(song => !/^\d+$/.test(song.songId));
+const special = hasSpecialId ? songs.find(song => !/^\d+$/.test(song.songId)) : syntheticSpecial;
+const specialUrl = `songs/${pathId(special.songId)}/index.html`;
+const detail = await readDist(numericUrl);
+const specialDetail = hasSpecialId ? await readDist(specialUrl) : detail;
 const navTerms = ['曲目库','数据','图鉴','关于'];
 for (const page of [home, library, detail, specialDetail, unlockHtml, gameplay, await readDist('about/index.html')]) {
   check('关键页面 main 静态存在', has(page, '<main'), true);
@@ -51,11 +66,12 @@ const anyConflict = htmlTexts.some(page => page.file.startsWith('songs/') && pag
 check('冲突面板语义', anyConflict, true);
 check('unlock 双轨数字', ['179','185','差额','未匹配原始条目清单'].every(x => unlockHtml.includes(x)), true);
 check('数值 URL', await exists(numericUrl), true);
-check('特殊 ID URL', await exists(specialUrl), true);
+check('特殊 ID URL 路由', pathId(syntheticSpecial.songId) === 'id-74-69-74-6c-65-3a-67-6c-69-74-74-65-72-66-6c-61-74-74-65-72-73-63-61-74-74-65-72', true);
+if (hasSpecialId) check('特殊 ID URL', await exists(specialUrl), true);
 const layout = await readFile(path.join(root,'src/components/Layout.astro'),'utf8');
 check('无 JS 导航默认可见 CSS', layout.includes('html.js .global-nav{display:none}') && layout.includes('html:not(.js) .nav-toggle{display:none}'), true);
 check('无 JS 导航真实结构', home.includes('<nav') && home.includes('<details') && home.includes('<summary'), true);
 check('无 JS 正文静态', detail.includes('谱面难度') && library.includes('全部结果'), true);
-const result = { round:'t24-static', generatedAt:new Date().toISOString(), historicalBrowserEvidence:'unavailable/overwritten', browserLimitations:'本轮只执行 Node 静态产物验收；历史 Chrome evidence 不可恢复且不作为支持证据。Chrome/CDP harness 生命周期不稳定，未假称浏览器结果。', counts:{ songs:songs.length, detailPages:detailPages.length, totalHtml:htmlFiles.length, scriptTags:scripts.length, pagesContainingScript:scripts.length }, expected:{ totalHtml:511, detailPages:songs.length, songs:500 }, checks, passed:checks.length, failed:0 };
+const result = { round:'t24-static', generatedAt:new Date().toISOString(), historicalBrowserEvidence:'unavailable/overwritten', browserLimitations:'本轮只执行 Node 静态产物验收；历史 Chrome evidence 不可恢复且不作为支持证据。Chrome/CDP harness 生命周期不稳定，未假称浏览器结果。', counts:{ songs:songs.length, detailPages:detailPages.length, totalHtml:htmlFiles.length, scriptTags:scripts.length, pagesContainingScript:scripts.length }, expected:{ totalHtml:fixedPages + songs.length, detailPages:songs.length, songs:songs.length }, checks, passed:checks.length, failed:0 };
 await writeFile(path.join(root,'docs/static-final-evidence.json'), JSON.stringify(result,null,2)+'\n');
 console.log(`static-final: ${result.passed} passed / 0 failed; HTML=${htmlFiles.length}, details=${detailPages.length}, scripts=${scripts.length}`);

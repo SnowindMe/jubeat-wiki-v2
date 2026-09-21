@@ -8,10 +8,16 @@ import { parseMc, diffFromVersion, beatToSeconds } from '../src/lib/mc-parser.js
 const REPO = 'SnowindMe/Jubeat2Malody-GUI';
 const BRANCH = 'mcz-releases';
 
+// 产物一律落在被 .gitignore 覆盖的目录里。
+// 音频与曲绘是第三方受版权保护数据，绝不能进 public/ —— 那会被 Astro 原样
+// 拷进 dist/ 并部署到线上（本项目是公开站）。预览器本身从 CDN 直读 .mcz，
+// 并不需要这些文件，它们只是离线抓取时的对照产物。
 const CHART_OUT = 'data/chart';
-const AUDIO_OUT = 'public/chart-audio';
+const AUDIO_OUT = 'data/chart-assets/audio';
+const COVER_OUT = 'data/chart-assets/cover';
 mkdirSync(CHART_OUT, { recursive: true });
 mkdirSync(AUDIO_OUT, { recursive: true });
+mkdirSync(COVER_OUT, { recursive: true });
 
 /** 读取远端 zip 条目表 */
 async function readEntries(url) {
@@ -85,14 +91,14 @@ for (const t of targets) {
     const audioEntry = entries.find((e) => /\.(ogg|mp3)$/i.test(e.name));
     const coverEntry = entries.find((e) => /\.(png|jpg|jpeg)$/i.test(e.name));
 
-    // 音频落到 public，供前端 <audio> 播放
+    // 音频落到 data/chart-assets（本地对照用，不进 public、不进仓库）
     let audioPath = null;
     if (audioEntry) {
       const base = path.basename(t).replace(/\.mcz$/i, '');
       const safe = base.replace(/[\\/:*?"<>|]/g, '_');
       const buf = await readEntry(url, audioEntry);
       writeFileSync(path.join(AUDIO_OUT, safe + '.ogg'), buf);
-      audioPath = `/chart-audio/${safe}.ogg`;
+      audioPath = `chart-assets/audio/${safe}.ogg`;
       console.log(`  音频 -> ${audioPath}  (${(buf.length / 1024 / 1024).toFixed(2)} MB)`);
     }
 
@@ -102,9 +108,8 @@ for (const t of targets) {
       const base = path.basename(t).replace(/\.mcz$/i, '');
       const safe = base.replace(/[\\/:*?"<>|]/g, '_');
       const buf = await readEntry(url, coverEntry);
-      mkdirSync('public/chart-cover', { recursive: true });
-      writeFileSync(path.join('public/chart-cover', safe + '.png'), buf);
-      coverPath = `/chart-cover/${safe}.png`;
+      writeFileSync(path.join(COVER_OUT, safe + '.png'), buf);
+      coverPath = `chart-assets/cover/${safe}.png`;
       console.log(`  曲绘 -> ${coverPath}  (${(buf.length / 1024).toFixed(0)} KB)`);
     }
 
