@@ -1,6 +1,6 @@
 {
   "round": "t24-static",
-  "generatedAt": "2026-09-21T00:39:32.165Z",
+  "generatedAt": "2026-09-21T03:05:12.987Z",
   "historicalBrowserEvidence": "unavailable/overwritten",
   "browserLimitations": "本轮只执行 Node 静态产物验收；历史 Chrome evidence 不可恢复且不作为支持证据。Chrome/CDP harness 生命周期不稳定，未假称浏览器结果。",
   "counts": {
@@ -395,6 +395,12 @@
       "expected": true
     },
     {
+      "name": "Logo 资源存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
       "name": "Blue Candy tokens",
       "pass": true,
       "actual": true,
@@ -449,6 +455,6 @@
       "expected": true
     }
   ],
-  "passed": 72,
+  "passed": 73,
   "failed": 0
 }

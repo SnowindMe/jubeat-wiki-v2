@@ -9,10 +9,10 @@ const { eyebrow, title, lead, note } = Astro.props;
   {note && <p class="intro__note">{note}</p>}
 </header>
 <style>
-.intro{margin:var(--w-s-2) 0 var(--w-s-5);border-radius:var(--w-r-xl);background:linear-gradient(135deg,var(--w-field) 0%,#3fd0ec 52%,var(--w-field-deep) 100%);padding:var(--w-s-6) var(--w-s-6) var(--w-s-5);box-shadow:var(--w-shadow-lift)}
+.intro{margin:var(--w-s-2) 0 var(--w-s-5);border-radius:var(--w-r-xl);background:var(--w-grad-hero);padding:var(--w-s-6) var(--w-s-6) var(--w-s-5);box-shadow:var(--w-shadow-lift)}
 .intro__eyebrow{display:inline-block;color:rgb(255 255 255 / 88%);font-size:var(--w-fs-xs);letter-spacing:var(--w-track-cap);text-transform:uppercase}
-.intro__title{margin:var(--w-s-2) 0 0;color:#fff;font-family:var(--w-font-display);font-size:var(--w-fs-h1);font-weight:800;line-height:var(--w-lh-tight);text-shadow:0 2px 12px rgb(4 60 78 / 16%)}
+.intro__title{margin:var(--w-s-2) 0 0;color:#fff;font-family:var(--w-font-display);font-size:var(--w-fs-h1);font-weight:800;line-height:var(--w-lh-tight);text-shadow:0 2px 12px rgb(4 60 78 / 22%)}
 .intro__lead{max-width:74ch;margin:var(--w-s-3) 0 0;color:rgb(255 255 255 / 94%);font-size:var(--w-fs-base);line-height:var(--w-lh-body)}
-.intro__note{max-width:74ch;margin:var(--w-s-3) 0 0;color:rgb(255 255 255 / 80%);font-size:var(--w-fs-xs);line-height:var(--w-lh-body)}
+.intro__note{max-width:74ch;margin:var(--w-s-3) 0 0;color:rgb(255 255 255 / 82%);font-size:var(--w-fs-xs);line-height:var(--w-lh-body)}
 @media(max-width:768px){.intro{padding:var(--w-s-5) var(--w-s-4)}}
 </style>

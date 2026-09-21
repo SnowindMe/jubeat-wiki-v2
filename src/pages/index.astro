@@ -1,6 +1,6 @@
 ---
 import Layout from '../components/Layout.astro';
-import { songs, meta } from '../lib/data';
+import { songs, meta, songHref, diffLabels, display } from '../lib/data';
 const chartCount = songs.reduce((total, song) => total + song.chartCount, 0);
 const stats = [
   ['本站曲目', songs.length],
@@ -8,18 +8,45 @@ const stats = [
   ['已收录曲绘', meta.counts.jackets],
   ['充能池', meta.counts.unlockPools],
 ];
-const areas = [
-  ['曲目库', '按曲名、谱面等级与来源找到每一首。', '/songs/', '曲', 'green'],
-  ['数据', '查看理论值与五池解禁资料。', '/jubility/', '数', 'blue'],
-  ['图鉴', '从版本与玩法理解音乐魔方。', '/versions/', '鉴', 'orange'],
-  ['关于', '了解数据口径、缺口与纠错方式。', '/about/', '於', 'pink'],
-];
+
+/* EXT constant histogram: jubeat grades cluster in whole-number bands */
+const bands = [
+  ['≤ 5', (v: number) => v < 6],
+  ['6', (v: number) => v >= 6 && v < 7],
+  ['7', (v: number) => v >= 7 && v < 8],
+  ['8', (v: number) => v >= 8 && v < 9],
+  ['9', (v: number) => v >= 9 && v < 10],
+  ['10', (v: number) => v >= 10 && v <= 10.5],
+  ['10.5+', (v: number) => v > 10.5],
+] as const;
+const extLevels = songs.map(song => song.levels.ext).filter((v): v is number => v !== null);
+const dist = bands.map(([label, test]) => {
+  const count = extLevels.filter(test).length;
+  return { label, count, pct: extLevels.length ? Math.round((count / extLevels.length) * 100) : 0 };
+}).filter(band => band.count > 0);
+const distMax = Math.max(...dist.map(band => band.count));
+
+/* latest additions: only part of the catalogue carries a release date */
+const latest = songs
+  .filter(song => song.addedAt)
+  .sort((a, b) => String(b.addedAt).localeCompare(String(a.addedAt)))
+  .slice(0, 8);
+
+/* hardest charts by EXT constant */
+const hardest = songs
+  .filter(song => song.levels.ext !== null)
+  .sort((a, b) => (b.levels.ext ?? 0) - (a.levels.ext ?? 0))
+  .slice(0, 8);
+
 const gaps = [
-  ['无曲绘', meta.missing.covers, 'gaps-covers.json'],
-  ['BPM 缺失', meta.missing.bpm, 'official-catalog'],
-  ['暂无考据', meta.missing.remywiki, 'remywiki.index'],
-  ['谱面不完整', meta.missing.incompleteCharts, 'levels'],
+  ['无曲绘', meta.missing.covers],
+  ['BPM 缺失', meta.missing.bpm],
+  ['暂无考据', meta.missing.remywiki],
+  ['谱面不完整', meta.missing.incompleteCharts],
 ];
+const pools = [['CHERRY', 'cherry'], ['KUMQUAT', 'kumquat'], ['LIME', 'lime'], ['BLUEBERRY', 'blueberry'], ['RAINBOW', 'rainbow']] as const;
+const rank = (i: number) => String(i + 1).padStart(2, '0');
+---
 ---
 <Layout title="首页" description="jubeat 音乐魔方国服曲目、谱面、解禁和考据的可追溯中文资料站。">
   <section class="hero">
@@ -34,129 +61,175 @@ const gaps = [
             <a class="wp-btn" href="/guide/">新手上路</a>
           </div>
         </div>
-        <div class="hero__brand">
-          <span class="hero__brand-frame"><img src="/brand/jubeat-music-cube-logo.webp" alt="jubeat 音乐魔方"/></span>
+        <div class="hero__aside">
+          <div class="hero__pad" data-pad-anim aria-hidden="true">
+            <div class="w-pad-4x4 w-pad-4x4--diamond">{Array.from({length:16}).map((_, i) => <span class="w-pad-key" data-difficulty={i === 1 ? 'bsc' : i === 7 ? 'adv' : i === 14 ? 'ext' : undefined}></span>)}</div>
+          </div>
         </div>
       </div>
-      <form action="/songs/" class="hero__search">
-        <label class="hero__search-label" for="hero-search">快捷检索</label>
-        <div class="wp-search">
-          <span class="wp-search__icon" aria-hidden="true"></span>
-          <input class="w-field" id="hero-search" name="q" placeholder="搜索曲名或 artist" autocomplete="off"/>
-          <button class="wp-search__kbd" type="submit" aria-label="搜索">/</button>
-        </div>
-      </form>
       <div class="hero__stats">
         {stats.map(([label, value]) => <div class="hero__stat"><strong>{value}</strong><span>{label}</span></div>)}
       </div>
       <p class="hero__legal">本站为非官方资料站；KONAMI、WAHLAP 等名称及相关内容归其权利人所有。</p>
     </div>
-    <div class="hero__pad" aria-hidden="true">
-      <div class="w-pad-4x4">{Array.from({length:16}).map((_, i) => <span class="w-pad-key" data-difficulty={i === 1 ? 'bsc' : i === 7 ? 'adv' : i === 14 ? 'ext' : undefined}></span>)}</div>
+  </section>
+
+  <section class="section">
+    <h2 class="wp-h2">EXT 定数分布<span class="wp-h2__note">{extLevels.length} 首已收录 EXT 定数</span></h2>
+    <div class="dist w-panel">
+      {dist.map(band => <div class="dist__row">
+        <span class="dist__label">{band.label}</span>
+        <span class="dist__track"><i style={`--w:${Math.round((band.count / distMax) * 100)}%`}></i></span>
+        <span class="dist__count"><b>{band.count}</b><small>{band.pct}%</small></span>
+      </div>)}
     </div>
   </section>
 
   <section class="section">
-    <h2 class="wp-h2">四分区入口<span class="wp-h2__note">按用途划分的四个入口</span></h2>
-    <div class="areas">
-      {areas.map(([name, desc, href, mark, tone]) => <a href={href} class="area w-card"><span class={`wp-dia wp-dia--${tone}`} aria-hidden="true"><b>{mark}</b></span><span class="area__text"><strong>{name}</strong><small>{desc}</small></span><span class="area__arrow" aria-hidden="true">→</span></a>)}
+    <h2 class="wp-h2">最新收录<span class="wp-h2__note">按上线日期倒序</span></h2>
+    <div class="board">
+      {latest.map(song => <a class="board__row" href={songHref(song.songId)}>
+        <span class="board__cover">{song.cover ? <img src={song.cover} alt="" loading="lazy"/> : <span class="board__nopad" aria-hidden="true"></span>}</span>
+        <span class="board__id"><strong>{song.title}</strong><small>{song.artist ?? '暂无 artist 数据'}</small></span>
+        <span class="w-difficulty" data-difficulty="ext">EXT {display(song.levels.ext, '—')}</span>
+        <span class="board__date">{song.addedAt}</span>
+      </a>)}
     </div>
   </section>
 
   <section class="section">
-    <h2 class="wp-h2">资料完整度<span class="wp-h2__note">缺口照实列出，不以推测补全</span></h2>
-    <div class="gaps">
-      {gaps.map(([label, count, source]) => <div class="gap w-card"><strong>{count}</strong><span class="gap__label">{label}</span><span class="gap__src">{source}</span></div>)}
+    <h2 class="wp-h2">定数最高<span class="wp-h2__note">EXT 定数前 8 位</span></h2>
+    <div class="board">
+      {hardest.map((song, i) => <a class="board__row" href={songHref(song.songId)}>
+        <span class="board__rank" aria-hidden="true">{rank(i)}</span>
+        <span class="board__cover">{song.cover ? <img src={song.cover} alt="" loading="lazy"/> : <span class="board__nopad" aria-hidden="true"></span>}</span>
+        <span class="board__id"><strong>{song.title}</strong><small>{song.artist ?? '暂无 artist 数据'}</small></span>
+        <span class="board__ext">{song.levels.ext?.toFixed(1)}</span>
+      </a>)}
     </div>
   </section>
 
   <section class="section">
-    <h2 class="wp-h2">从哪里开始</h2>
-    <div class="split">
-      <article class="w-panel">
-        <h3 class="split__h">完整静态列表</h3>
-        <p class="split__p">全量曲目已直接输出在页面内；即使未启用 JavaScript，也能按曲名进入每一首的资料页。</p>
-        <a class="split__link" href="/songs/">进入全量曲目库 →</a>
-      </article>
-      <article class="w-panel">
-        <h3 class="split__h">解禁与充能</h3>
-        <p class="split__p">{meta.counts.unlockPools} 个充能池按 CHERRY / KUMQUAT / LIME / BLUEBERRY / RAINBOW 分池登记，未匹配条目一并列出。</p>
-        <a class="split__link" href="/unlock/">查看充能条件 →</a>
-      </article>
-      <article class="w-panel">
-        <h3 class="split__h">资料政策</h3>
-        <p class="split__p">多源冲突保留候选值与差额，不做静默合并；字段缺失一律保持 null。</p>
-        <a class="split__link" href="/about/">查看来源与缺口说明 →</a>
-      </article>
+    <h2 class="wp-h2">资料缺口<span class="wp-h2__note">照实列出，不以推测补全</span></h2>
+    <div class="gap-row w-panel">
+      {gaps.map(([label, count]) => <span class="gap-chip"><b>{count}</b>{label}</span>)}
+      <a class="gap-row__link" href="/about/">查看来源与缺口说明 →</a>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="wp-h2">解禁与充能<span class="wp-h2__note">五池分池登记</span></h2>
+    <div class="pools">
+      {pools.map(([name, key]) => <a class="pool w-pool-card" data-pool={key} href="/unlock/">
+        <span class="pool__name">{name}</span>
+        <span class="pool__note">查看该池充能条件与未匹配条目</span>
+      </a>)}
     </div>
   </section>
 </Layout>
 <style>
 /* hero: candy field with white stat strip, echoing the tournament key visual */
-.hero{position:relative;overflow:hidden;border-radius:var(--w-r-xl);background:linear-gradient(155deg,#6ad3ee 0%,#9ce4f6 34%,#c8eefa 62%,#e2e8fb 100%);padding:var(--w-s-7) var(--w-s-7) var(--w-s-6);box-shadow:var(--w-shadow-lift)}
+.hero{position:relative;overflow:hidden;border-radius:var(--w-r-xl);background:var(--w-grad-hero);padding:var(--w-s-7) var(--w-s-7) var(--w-s-6);box-shadow:var(--w-shadow-lift)}
 .hero::before{position:absolute;inset:0;content:"";pointer-events:none;background-image:linear-gradient(135deg,rgb(255 255 255 / 22%) 25%,transparent 25% 75%,rgb(255 255 255 / 22%) 75%),linear-gradient(135deg,rgb(255 255 255 / 14%) 25%,transparent 25% 75%,rgb(255 255 255 / 14%) 75%);background-position:0 0,34px 34px;background-size:136px 136px,136px 136px;opacity:.7}
 .hero::after{position:absolute;top:-90px;right:-60px;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle,rgb(255 255 255 / 30%) 0%,transparent 68%);content:"";pointer-events:none}
 .hero__body{position:relative;z-index:1;display:grid;gap:var(--w-s-5)}
 .hero__head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:var(--w-s-5)}
-.hero__eyebrow{display:inline-block;color:rgb(255 255 255 / 88%);font-size:var(--w-fs-xs);letter-spacing:var(--w-track-cap);text-transform:uppercase}
+.hero__eyebrow{display:inline-block;color:rgb(255 255 255 / 95%);font-size:var(--w-fs-xs);letter-spacing:var(--w-track-cap);text-transform:uppercase;text-shadow:0 1px 4px rgb(4 60 78 / 30%)}
 .hero__title{margin:var(--w-s-2) 0 0;color:#fff;font-family:var(--w-font-display);font-size:var(--w-fs-display);font-weight:800;line-height:var(--w-lh-tight);text-shadow:0 2px 12px rgb(4 60 78 / 18%)}
-.hero__lede{max-width:56ch;margin:var(--w-s-3) 0 0;color:rgb(255 255 255 / 94%);line-height:var(--w-lh-body)}
+.hero__lede{max-width:56ch;margin:var(--w-s-3) 0 0;color:rgb(255 255 255 / 98%);line-height:var(--w-lh-body);text-shadow:0 1px 4px rgb(4 60 78 / 26%)}
 .hero__actions{display:flex;flex-wrap:wrap;gap:var(--w-s-2);margin-top:var(--w-s-4)}
 .hero__actions .wp-btn{border-color:rgb(255 255 255 / 55%);background:rgb(255 255 255 / 18%);color:#fff;box-shadow:none}
 .hero__actions .wp-btn:hover{border-color:#fff;background:rgb(255 255 255 / 30%);color:#fff}
 .hero__actions .wp-btn--solid{border-color:#fff;background:#fff;color:var(--w-hit-deep)}
 .hero__actions .wp-btn--solid:hover{border-color:#fff;background:#fff;color:var(--w-field-deep)}
-.hero__brand{display:grid;place-items:center;padding:var(--w-s-3);border-radius:var(--w-r-lg);background:rgb(255 255 255 / 92%)}
-.hero__brand-frame img{display:block;width:clamp(120px,15vw,168px);height:auto}
-.hero__search{display:block;max-width:620px}
-.hero__search-label{display:block;margin-bottom:var(--w-s-2);color:rgb(255 255 255 / 92%);font-size:var(--w-fs-sm);font-weight:700}
-.hero__search .w-field{background:rgb(255 255 255 / 94%);border-color:rgb(255 255 255 / 70%)}
-.hero__search .wp-search__kbd{background:var(--w-panel-3);cursor:pointer}
+.hero__aside{display:grid;justify-items:center;gap:var(--w-s-4)}
+/* the rotated pad needs breathing room so its corners are not clipped */
+.hero__pad{display:grid;place-items:center;padding:var(--w-s-6) var(--w-s-5)}
+.hero__pad .w-pad-4x4{width:min(32vw,152px)}
 .hero__stats{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--w-s-2)}
-.hero__stat{display:grid;gap:2px;border-radius:var(--w-r-md);background:rgb(255 255 255 / 16%);padding:var(--w-s-3) var(--w-s-4)}
-.hero__stat strong{color:#fff;font-family:var(--w-font-display);font-size:var(--w-fs-stat);font-weight:800;line-height:1.1}
-.hero__stat span{color:rgb(255 255 255 / 86%);font-size:var(--w-fs-xs)}
-.hero__legal{margin:0;color:rgb(255 255 255 / 78%);font-size:var(--w-fs-xs);line-height:var(--w-lh-body)}
-.hero__pad{position:absolute;z-index:0;right:var(--w-s-5);bottom:var(--w-s-5);opacity:.55;pointer-events:none}
-.hero__pad .w-pad-4x4{width:184px;background:rgb(255 255 255 / 14%);gap:6px;padding:6px}
-.hero__pad .w-pad-key{border-color:rgb(255 255 255 / 30%);background:rgb(255 255 255 / 22%)}
-
+.hero__stat{display:grid;gap:2px;border:1px solid rgb(255 255 255 / 34%);border-radius:var(--w-r-md);background:rgb(255 255 255 / 26%);padding:var(--w-s-3) var(--w-s-4);backdrop-filter:blur(4px)}
+.hero__stat strong{color:#fff;font-family:var(--w-font-display);font-size:var(--w-fs-stat);font-weight:800;line-height:1.1;text-shadow:0 1px 6px rgb(4 60 78 / 32%)}
+.hero__stat span{color:rgb(255 255 255 / 96%);font-size:var(--w-fs-xs);font-weight:600;text-shadow:0 1px 4px rgb(4 60 78 / 30%)}
+.hero__legal{margin:0;color:rgb(255 255 255 / 88%);font-size:var(--w-fs-xs);line-height:var(--w-lh-body);text-shadow:0 1px 4px rgb(4 60 78 / 24%)}
 .section{margin-top:var(--w-s-7)}
-.areas{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--w-s-3)}
-.area{display:grid;grid-template-columns:38px 1fr auto;align-items:center;gap:var(--w-s-3);color:var(--w-ink);text-decoration:none}
-.area__icon{display:grid;width:38px;height:38px;place-items:center;border-radius:var(--w-r-sm);background:var(--w-hit-wash);color:var(--w-hit-deep);font-family:var(--w-font-display);font-size:var(--w-fs-lg);font-weight:800}
-.area:hover .area__icon{background:var(--w-hit);color:var(--w-hit-ink)}
-.area__text{display:grid;gap:2px;min-width:0}
-.area__text strong{font-family:var(--w-font-display);font-size:var(--w-fs-lg);font-weight:800}
-.area__text small{color:var(--w-muted);font-size:var(--w-fs-xs);line-height:1.6}
-.area__arrow{color:var(--w-dim);transition:transform var(--w-dur-base) var(--w-ease),color var(--w-dur-base) var(--w-ease)}
-.area:hover .area__arrow{color:var(--w-hit);transform:translateX(3px)}
+/* EXT constant histogram */
+.dist{display:grid;gap:var(--w-s-2);padding:var(--w-s-5)}
+.dist__row{display:grid;grid-template-columns:52px 1fr 78px;align-items:center;gap:var(--w-s-3)}
+.dist__label{color:var(--w-ink);font-family:var(--w-font-display);font-size:var(--w-fs-base);font-weight:800;text-align:right}
+.dist__track{height:14px;overflow:hidden;border-radius:var(--w-r-pill);background:var(--w-panel-3)}
+.dist__track > i{display:block;width:var(--w,0%);height:100%;border-radius:var(--w-r-pill);background:var(--w-grad-accent);transition:width var(--w-dur-slow) var(--w-ease)}
+.dist__count{display:flex;align-items:baseline;gap:var(--w-s-2);font-family:var(--w-font-data)}
+.dist__count b{color:var(--w-ink);font-size:var(--w-fs-base);font-weight:700}
+.dist__count small{color:var(--w-muted);font-size:var(--w-fs-micro)}
 
-.gaps{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--w-s-3)}
-.gap{display:grid;gap:2px;padding:var(--w-s-4) var(--w-s-5)}
-.gap strong{color:var(--w-adv);font-family:var(--w-font-display);font-size:var(--w-fs-stat);font-weight:800;line-height:1.1}
-.gap__label{color:var(--w-ink);font-size:var(--w-fs-sm);font-weight:700}
-.gap__src{color:var(--w-dim);font-family:var(--w-font-data);font-size:var(--w-fs-micro)}
+/* compact data rows: latest additions and hardest charts */
+.board{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--w-s-2)}
+.board__row{display:flex;align-items:center;gap:var(--w-s-3);border:1px solid var(--w-seam);border-radius:var(--w-r-pill);background:var(--w-grad-panel);box-shadow:var(--w-shadow-card);padding:5px var(--w-s-4) 5px 5px;color:var(--w-ink);text-decoration:none;transition:border-color var(--w-dur-base) var(--w-ease),box-shadow var(--w-dur-base) var(--w-ease),transform var(--w-dur-base) var(--w-ease)}
+.board__row:hover{border-color:var(--w-seam-hi);box-shadow:var(--w-shadow-lift);transform:translateY(-1px)}
+.board__rank{width:24px;flex:none;color:var(--w-dim);font-family:var(--w-font-data);font-size:var(--w-fs-sm);font-weight:700;text-align:center}
+.board__cover{display:grid;width:42px;height:42px;flex:none;place-items:center;overflow:hidden;border-radius:var(--w-r-pill);background:var(--w-panel-2)}
+.board__cover img{width:100%;height:100%;object-fit:cover}
+.board__nopad{width:18px;height:18px;border-radius:var(--w-r-xs);background:linear-gradient(135deg,var(--w-panel-3) 50%,var(--w-panel-2) 50%)}
+.board__id{display:grid;flex:1 1 auto;gap:1px;min-width:0}
+.board__id strong{overflow:hidden;font-family:var(--w-font-display);font-size:var(--w-fs-base);font-weight:800;text-overflow:ellipsis;white-space:nowrap}
+.board__id small{overflow:hidden;color:var(--w-muted);font-size:var(--w-fs-xs);text-overflow:ellipsis;white-space:nowrap}
+.board__date{flex:none;color:var(--w-dim);font-family:var(--w-font-data);font-size:var(--w-fs-xs)}
+.board__ext{flex:none;color:var(--w-ext);font-family:var(--w-display,var(--w-font-display));font-size:var(--w-fs-xl);font-weight:800}
 
-.split{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--w-s-3)}
-.split__h{margin:0 0 var(--w-s-2);color:var(--w-ink);font-family:var(--w-font-display);font-size:var(--w-fs-lg);font-weight:800}
-.split__p{margin:0 0 var(--w-s-3);color:var(--w-ink-soft);font-size:var(--w-fs-sm);line-height:var(--w-lh-body)}
-.split__link{color:var(--w-hit-deep);font-size:var(--w-fs-sm);font-weight:700;text-decoration:none}
-.split__link:hover{text-decoration:underline}
+/* data gaps as one compact strip */
+.gap-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--w-s-3);padding:var(--w-s-4) var(--w-s-5)}
+.gap-chip{display:inline-flex;align-items:baseline;gap:var(--w-s-2);color:var(--w-ink-soft);font-size:var(--w-fs-sm)}
+.gap-chip b{color:var(--w-adv);font-family:var(--w-font-display);font-size:var(--w-fs-lg);font-weight:800}
+.gap-row__link{margin-left:auto;color:var(--w-hit-deep);font-size:var(--w-fs-sm);font-weight:700;text-decoration:none}
+.gap-row__link:hover{text-decoration:underline}
+
+/* unlock pools */
+.pools{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--w-s-3)}
+.pool{display:grid;gap:var(--w-s-1);text-decoration:none}
+.pool__name{color:var(--w-ink);font-family:var(--w-font-display);font-size:var(--w-fs-lg);font-weight:800}
+.pool__note{color:var(--w-muted);font-size:var(--w-fs-xs);line-height:1.5}
 
 @media(max-width:1024px){
   .hero{padding:var(--w-s-6) var(--w-s-5)}
   .hero__head{grid-template-columns:1fr;gap:var(--w-s-4)}
   .hero__brand{justify-self:start}
-  .areas,.gaps,.split{grid-template-columns:repeat(2,1fr)}
+  .board{grid-template-columns:1fr}
+  .pools{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media(max-width:768px){
   .hero__stats{grid-template-columns:repeat(2,1fr)}
   .hero__pad{display:none}
+  .dist__row{grid-template-columns:44px 1fr 62px}
 }
 @media(max-width:520px){
-  .areas,.gaps,.split{grid-template-columns:1fr}
   .hero__stats{grid-template-columns:1fr 1fr}
-  .area{grid-template-columns:34px 1fr auto}
+  .board__date{display:none}
+  .gap-row__link{margin-left:0}
+  .pools{grid-template-columns:1fr}
 }
 </style>
+<script>
+/* Randomly light pad keys so the 4x4 panel reads like someone playing a chart.
+   Each page load produces a different pattern. */
+const startPad = () => {
+  const pad = document.querySelector('[data-pad-anim]');
+  if (!pad || pad.dataset.animating) return;
+  const keys = Array.from(pad.querySelectorAll('.w-pad-key'));
+  if (!keys.length || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  pad.dataset.animating = '1';
+  const beat = () => {
+    if (!pad.isConnected) return; /* page was swapped away; stop the loop */
+    const hits = 1 + Math.floor(Math.random() * 2);
+    for (let n = 0; n < hits; n += 1) {
+      const key = keys[Math.floor(Math.random() * keys.length)];
+      if (!key || key.classList.contains('is-lit')) continue;
+      key.classList.add('is-lit');
+      setTimeout(() => key.classList.remove('is-lit'), 320 + Math.random() * 380);
+    }
+    setTimeout(beat, 380 + Math.random() * 460);
+  };
+  setTimeout(beat, 400);
+};
+startPad();
+document.addEventListener('astro:page-load', startPad);
+</script>

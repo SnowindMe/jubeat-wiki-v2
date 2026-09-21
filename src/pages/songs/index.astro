@@ -42,21 +42,21 @@ const noCover = songs.filter(s => !s.cover).length;
 
   <section class="section" aria-labelledby="result-title">
     <h2 class="wp-h2" id="result-title">全部结果<span class="wp-h2__note">显示 {shownSongs.length} 首</span></h2>
-    <div class="song-grid">
-      {shownSongs.map(song => <article class="song w-card">
-        <a class="song__cover w-cover-slot" href={songHref(song.songId)} aria-label={`${song.title} 详情`}>
-          {song.cover ? <img src={song.cover} alt={`${song.title} 曲绘`} loading="lazy"/> : <div class="song__nopad w-pad-4x4" aria-hidden="true">{Array.from({length:16}).map(() => <span class="w-pad-key"></span>)}</div>}
+    <div class="song-list">
+      {shownSongs.map(song => <article class="song">
+        <a class="song__cover" href={songHref(song.songId)} aria-label={`${song.title} 详情`}>
+          {song.cover ? <img src={song.cover} alt="" loading="lazy"/> : <span class="song__nopad" aria-hidden="true"></span>}
         </a>
-        <div class="song__body">
-          <h3 class="song__title"><a href={songHref(song.songId)}>{song.title}</a>{song.hasAltChart && <span class="wp-badge wp-badge--muted">[2]</span>}</h3>
-          <p class="song__artist">{song.artist ?? '暂无 artist 数据'}</p>
-          <div class="song__diffs">{diffs.map(diff => <span class="w-difficulty" data-difficulty={diff}>{diffLabels[diff]} <b>{display(song.levels[diff], '—')}</b></span>)}</div>
-          <dl class="song__meta">
-            <div><dt>原机种</dt><dd>{song.origin}</dd></div>
-            <div><dt>解禁池</dt><dd>{song.unlockPool ?? '无需充能'}</dd></div>
-            <div><dt>批次</dt><dd>{song.addedBatch ?? '暂无记录'}</dd></div>
-          </dl>
+        <div class="song__id">
+          <h3 class="song__title"><a href={songHref(song.songId)}>{song.title}</a></h3>
+          <p class="song__artist">{song.artist ?? '暂无 artist 数据'}{song.hasAltChart && <span class="wp-badge wp-badge--muted">[2]</span>}</p>
         </div>
+        <div class="song__diffs">{diffs.map(diff => <span class="w-difficulty" data-difficulty={diff}>{diffLabels[diff]} <b>{display(song.levels[diff], '—')}</b></span>)}</div>
+        <dl class="song__meta">
+          <div><dt>原机种</dt><dd>{song.origin}</dd></div>
+          <div><dt>解禁池</dt><dd>{song.unlockPool ?? '无需充能'}</dd></div>
+          <div><dt>批次</dt><dd>{song.addedBatch ?? '暂无记录'}</dd></div>
+        </dl>
       </article>)}
     </div>
   </section>
@@ -77,31 +77,32 @@ const noCover = songs.filter(s => !s.cover).length;
 .ov strong{color:var(--w-ink);font-family:var(--w-font-display);font-size:var(--w-fs-stat);font-weight:800;line-height:1.1}
 .ov span{color:var(--w-muted);font-size:var(--w-fs-xs)}
 
-.song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,236px),1fr));gap:var(--w-s-4)}
-.song{display:grid;grid-template-rows:auto 1fr;gap:0;overflow:hidden;padding:0}
-.song__cover{position:relative;aspect-ratio:1;border-radius:0;background:var(--w-panel-2)}
+/* capsule rows: one song per pill, compact enough to scan hundreds */
+.song-list{display:grid;gap:var(--w-s-2)}
+.song{display:flex;align-items:center;gap:var(--w-s-3);border:1px solid var(--w-seam);border-radius:var(--w-r-pill);background:var(--w-grad-panel);box-shadow:var(--w-shadow-card);padding:6px var(--w-s-5) 6px 6px;transition:border-color var(--w-dur-base) var(--w-ease),box-shadow var(--w-dur-base) var(--w-ease),transform var(--w-dur-base) var(--w-ease)}
+.song:hover{border-color:var(--w-seam-hi);box-shadow:var(--w-shadow-lift);transform:translateY(-1px)}
+.song__cover{display:grid;width:50px;height:50px;flex:none;place-items:center;overflow:hidden;border-radius:var(--w-r-pill);background:var(--w-panel-2)}
 .song__cover img{width:100%;height:100%;object-fit:cover}
-.song__nopad{width:56%;border:0;background:transparent;opacity:.5}
-.song__body{display:grid;align-content:start;gap:var(--w-s-2);padding:var(--w-s-4)}
-.song__title{display:flex;align-items:center;gap:var(--w-s-2);margin:0;font-family:var(--w-font-display);font-size:var(--w-fs-lg);font-weight:800;line-height:1.3}
+.song__nopad{width:22px;height:22px;border-radius:var(--w-r-xs);background:linear-gradient(135deg,var(--w-panel-3) 50%,var(--w-panel-2) 50%)}
+.song__id{display:grid;flex:1 1 auto;gap:1px;min-width:0}
+.song__title{margin:0;overflow:hidden;font-family:var(--w-font-display);font-size:var(--w-fs-base);font-weight:800;line-height:1.3;text-overflow:ellipsis;white-space:nowrap}
 .song__title a{color:var(--w-ink);text-decoration:none}
 .song__title a:hover{color:var(--w-hit-deep)}
-.song__artist{margin:0;color:var(--w-muted);font-size:var(--w-fs-xs);line-height:1.5}
-.song__diffs{display:flex;flex-wrap:wrap;gap:var(--w-s-1)}
+.song__artist{display:flex;align-items:center;gap:var(--w-s-2);margin:0;overflow:hidden;color:var(--w-muted);font-size:var(--w-fs-xs);text-overflow:ellipsis;white-space:nowrap}
+.song__diffs{display:flex;flex:none;gap:var(--w-s-1)}
 .song__diffs b{font-family:var(--w-font-display)}
-.song__meta{display:grid;gap:var(--w-s-1);margin:var(--w-s-1) 0 0;padding-top:var(--w-s-2);border-top:1px solid var(--w-seam-soft);font-size:var(--w-fs-xs)}
+.song__meta{display:flex;flex:none;gap:var(--w-s-4);margin:0;font-size:var(--w-fs-xs)}
 .song__meta > div{display:flex;align-items:baseline;gap:var(--w-s-2)}
-.song__meta dt{flex:none;min-width:3.5em;color:var(--w-muted)}
-.song__meta dd{margin:0;color:var(--w-ink-soft);font-family:var(--w-font-data);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.song__meta dt{flex:none;color:var(--w-muted)}
+.song__meta dd{max-width:13ch;margin:0;overflow:hidden;color:var(--w-ink-soft);font-family:var(--w-font-data);text-overflow:ellipsis;white-space:nowrap}
 
-@media(max-width:768px){
+@media(max-width:1024px){
   .overview{grid-template-columns:repeat(2,1fr)}
-  .song-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,158px),1fr));gap:var(--w-s-3)}
-  .song__body{padding:var(--w-s-3);gap:var(--w-s-1)}
-  .song__title{font-size:var(--w-fs-base)}
   .song__meta{display:none}
 }
-@media(max-width:420px){
-  .song-grid{grid-template-columns:repeat(2,1fr)}
+@media(max-width:640px){
+  .song{flex-wrap:wrap;border-radius:var(--w-r-lg);padding:var(--w-s-3)}
+  .song__cover{border-radius:var(--w-r-sm)}
+  .song__diffs{order:3;width:100%}
 }
 </style>

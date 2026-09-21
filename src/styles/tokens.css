@@ -15,6 +15,7 @@
 
   /* gradients: the cabinet screens are gradients top-to-bottom, cyan into violet */
   --w-grad-field: linear-gradient(160deg, #7fd8ef 0%, #b3e9f7 42%, #d7f3fb 74%, #e9e4fa 100%);
+  --w-grad-hero: linear-gradient(155deg, #3fc0e4 0%, #6fd4ee 36%, #a3e4f6 68%, #c9d9f8 100%);
   --w-grad-panel: linear-gradient(150deg, #ffffff 0%, #f8fdff 62%, #f3f7ff 100%);
   --w-grad-glass: linear-gradient(150deg, rgb(255 255 255 / 92%) 0%, rgb(255 255 255 / 76%) 100%);
   --w-grad-accent: linear-gradient(135deg, #58d2ec 0%, #3ab4dc 52%, #6f9fe8 100%);
@@ -145,6 +146,71 @@
   --w-ease: cubic-bezier(.2, .8, .3, 1);
 }
 
+/* dark theme: deep navy cabinet, same candy-cyan accent */
+[data-theme="dark"] {
+  --w-bg: #0a1a26;
+  --w-bg-2: #0d2130;
+  --w-panel: #12283a;
+  --w-panel-2: #17324a;
+  --w-panel-3: #1c3b55;
+  --w-panel-glass: rgb(18 40 58 / 82%);
+  --w-seam: #1e4058;
+  --w-seam-soft: #1a3550;
+  --w-seam-hi: #2b5a77;
+  --w-seam-strong: #3a7a96;
+
+  --w-shadow-card: 0 2px 12px rgb(0 0 0 / 34%);
+  --w-shadow-lift: 0 10px 30px rgb(0 0 0 / 46%);
+  --w-shadow-glow: 0 0 20px rgb(56 198 230 / 30%);
+
+  --w-ink: #e4f2fa;
+  --w-ink-soft: #a8c6d8;
+  --w-muted: #7d9db1;
+  --w-dim: #5f7f94;
+  --w-hit-ink: #04222c;
+
+  --w-hit: #3fd0ec;
+  --w-hit-deep: #7adcf2;
+  --w-hit-wash: rgb(63 208 236 / 14%);
+  --w-hit-glow: rgb(63 208 236 / 26%);
+
+  --w-field-soft: #14304a;
+
+  --w-grad-panel: linear-gradient(150deg, #14293c 0%, #122536 62%, #10202f 100%);
+  --w-grad-glass: linear-gradient(150deg, rgb(20 41 60 / 88%) 0%, rgb(16 34 50 / 76%) 100%);
+  --w-grad-hero: linear-gradient(155deg, #10405a 0%, #14506c 36%, #17536e 68%, #202f5e 100%);
+  --w-field-deep: #1b5a78;
+
+  --w-bsc: #4fd68c;
+  --w-bsc-bg: rgb(79 214 140 / 14%);
+  --w-bsc-line: rgb(79 214 140 / 40%);
+  --w-adv: #f5c25c;
+  --w-adv-bg: rgb(245 194 92 / 14%);
+  --w-adv-line: rgb(245 194 92 / 40%);
+  --w-ext: #f4789c;
+  --w-ext-bg: rgb(244 120 156 / 14%);
+  --w-ext-line: rgb(244 120 156 / 38%);
+
+  --w-source: #8fb3c8;
+  --w-source-bg: #16304a;
+
+  --w-pool-cherry: #f28aac;
+  --w-pool-kumquat: #f5b45c;
+  --w-pool-lime: #93cf5e;
+  --w-pool-blueberry: #7aa6ea;
+  --w-pool-rainbow: #c194ee;
+}
+[data-theme="dark"] body::before {
+  background-image:
+    linear-gradient(160deg, rgb(30 80 110 / 52%) 0%, rgb(24 62 90 / 40%) 34%, rgb(20 52 78 / 26%) 64%, rgb(44 46 96 / 34%) 100%),
+    linear-gradient(135deg, rgb(63 208 236 / 9%) 25%, transparent 25% 75%, rgb(63 208 236 / 9%) 75%),
+    linear-gradient(135deg, rgb(120 180 220 / 7%) 25%, transparent 25% 75%, rgb(120 180 220 / 7%) 75%);
+}
+[data-theme="dark"] body::after {
+  background: linear-gradient(to top, rgb(58 52 110 / 34%) 0%, rgb(30 44 84 / 16%) 46%, transparent 100%);
+}
+[data-theme="dark"] { color-scheme: dark }
+
 *, *::before, *::after { box-sizing: border-box; }
 html { background: var(--w-bg); color: var(--w-ink); font-family: var(--w-font-body); scroll-behavior: smooth; }
 body {
@@ -217,6 +283,8 @@ img, svg, video { display: block; max-width: 100%; }
 button, input, select, textarea { font: inherit; }
 a { color: var(--w-hit-deep); text-decoration-thickness: 1px; text-underline-offset: .16em; }
 a:hover { color: var(--w-hit); }
+/* keep visited links on-palette: the UA default would leak purple/orange */
+a:visited { color: var(--w-hit-deep); }
 :focus-visible { outline: 2px solid var(--w-focus); outline-offset: 2px; }
 
 .w-shell { width: min(calc(100% - 36px), var(--w-shell)); margin-inline: auto; }
@@ -366,7 +434,9 @@ a:hover { color: var(--w-hit); }
   transform: translateY(-50%);
 }
 
-.w-brand-logo { display: block; width: clamp(96px, 12vw, 140px); height: auto; max-width: 100%; object-fit: contain }
+/* Logo is applied as a CSS mask, not an <img>: an SVG inside <img> cannot inherit
+   the page colour, so masking lets one asset follow the theme. */
+.w-brand-logo { display: block; width: clamp(96px, 12vw, 140px); aspect-ratio: 2432 / 992; background-color: currentColor; -webkit-mask: url('/brand/jubeat-logo.svg') left center / contain no-repeat; mask: url('/brand/jubeat-logo.svg') left center / contain no-repeat }
 .w-brand-logo--hero { width: clamp(150px, 20vw, 230px) }
 .w-brand-logo-frame { display: inline-flex; align-items: center; justify-content: center; padding: var(--w-s-3); border: 1px solid var(--w-seam); border-radius: var(--w-r-md); background: var(--w-panel) }
 .w-brand-logo-placeholder { display: grid; width: clamp(96px, 12vw, 140px); min-height: 42px; place-items: center; border: 2px solid var(--w-ink); border-radius: var(--w-r-xs); color: var(--w-ink); font-family: var(--w-font-display); font-size: var(--w-fs-sm); font-weight: 900 }
@@ -379,6 +449,33 @@ a:hover { color: var(--w-hit); }
 .w-pad-key[data-difficulty="bsc"] { border-color: var(--w-bsc-line); background: var(--w-bsc-bg); box-shadow: inset 0 0 0 1px var(--w-bsc-line) }
 .w-pad-key[data-difficulty="adv"] { border-color: var(--w-adv-line); background: var(--w-adv-bg); box-shadow: inset 0 0 0 1px var(--w-adv-line) }
 .w-pad-key[data-difficulty="ext"] { border-color: var(--w-ext-line); background: var(--w-ext-bg); box-shadow: inset 0 0 0 1px var(--w-ext-line) }
+
+/* rotated diamond pad: the 4x4 panel turned 45deg.
+   Keys are lit randomly by script to mimic someone playing a chart. */
+.w-pad-4x4--diamond { gap: 7px; padding: 0; border: 0; background: transparent; transform: rotate(45deg) }
+.w-pad-4x4--diamond .w-pad-key {
+  --pad-lit-bg: rgb(255 255 255 / 88%);
+  --pad-lit-glow: rgb(255 255 255 / 62%);
+  border-color: rgb(255 255 255 / 42%);
+  border-radius: 5px;
+  background-color: rgb(255 255 255 / 14%);
+  box-shadow: none;
+  transition: background-color 90ms var(--w-ease), box-shadow 90ms var(--w-ease), transform 90ms var(--w-ease);
+}
+.w-pad-4x4--diamond .w-pad-key[data-difficulty="bsc"] { --pad-lit-bg: var(--w-bsc); --pad-lit-glow: var(--w-bsc); border-color: rgb(255 255 255 / 55%) }
+.w-pad-4x4--diamond .w-pad-key[data-difficulty="adv"] { --pad-lit-bg: var(--w-adv); --pad-lit-glow: var(--w-adv); border-color: rgb(255 255 255 / 55%) }
+.w-pad-4x4--diamond .w-pad-key[data-difficulty="ext"] { --pad-lit-bg: var(--w-ext); --pad-lit-glow: var(--w-ext); border-color: rgb(255 255 255 / 55%) }
+.w-pad-4x4--diamond .w-pad-key.is-lit {
+  background-color: var(--pad-lit-bg);
+  box-shadow: 0 0 20px var(--pad-lit-glow), 0 0 6px var(--pad-lit-glow);
+  transform: scale(1.12);
+}
+[data-theme="dark"] .w-pad-4x4--diamond .w-pad-key { --pad-lit-bg: #7ceaff; --pad-lit-glow: rgb(124 234 255 / 90%); border-color: rgb(124 234 255 / 42%); background-color: rgb(124 234 255 / 13%) }
+[data-theme="dark"] .w-pad-4x4--diamond .w-pad-key[data-difficulty="bsc"] { --pad-lit-bg: var(--w-bsc); --pad-lit-glow: var(--w-bsc) }
+[data-theme="dark"] .w-pad-4x4--diamond .w-pad-key[data-difficulty="adv"] { --pad-lit-bg: var(--w-adv); --pad-lit-glow: var(--w-adv) }
+[data-theme="dark"] .w-pad-4x4--diamond .w-pad-key[data-difficulty="ext"] { --pad-lit-bg: var(--w-ext); --pad-lit-glow: var(--w-ext) }
+/* the lit key also lifts, so the beat reads even on a low-contrast field */
+.w-pad-4x4--diamond .w-pad-key.is-lit { box-shadow: 0 0 20px var(--pad-lit-glow), 0 0 6px var(--pad-lit-glow) }
 
 .w-song-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--w-card-min)), 1fr)); gap: var(--w-s-4) }
 .w-diamond-link { display: inline-grid; grid-template-columns: var(--w-tap) 1fr; align-items: center; gap: var(--w-s-3); min-height: var(--w-tap); color: var(--w-ink); font-weight: 700; text-decoration: none }

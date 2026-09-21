@@ -37,7 +37,13 @@ for (const page of [home, library, detail, specialDetail, unlockHtml, gameplay, 
 }
 check('曲库二级链接静态存在', /href="\/songs\//.test(library), true);
 check('主导航二级链接静态存在', /href="\/(jubility|unlock|versions|updates|gameplay|dans|guide|about)\//.test(home), true);
-check('首页正式 Logo', has(home, '/brand/jubeat-music-cube-logo.webp'), true);
+// The brand logo ships as a CSS mask (an <img>-embedded SVG cannot inherit the
+// page colour), so assert both the DOM carrier and the asset wiring.
+const styleDir = path.join(dist, '_astro');
+const cssFiles = (await readdir(styleDir)).filter(name => name.endsWith('.css'));
+const cssText = (await Promise.all(cssFiles.map(name => readFile(path.join(styleDir, name), 'utf8')))).join('\n');
+check('首页正式 Logo', has(home, 'brand__logo') && has(cssText, '/brand/jubeat-logo.svg'), true);
+check('Logo 资源存在', await exists('brand/jubeat-logo.svg'), true);
 const tokens = await readFile(path.join(root,'src/styles/tokens.css'),'utf8');
 check('Blue Candy tokens', tokens.includes('--w-bg') && tokens.includes('--w-hit') && tokens.includes('--w-panel'), true);
 check('来源语义', detail.includes('字段来源') || detail.includes('来源'), true);
