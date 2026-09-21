@@ -1,0 +1,55 @@
+import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const dist = path.join(root, 'dist');
+const checks = [];
+const check = (name, actual, expected) => { const pass = actual === expected || (typeof actual === 'boolean' && actual === expected); checks.push({ name, pass, actual, expected }); if (!pass) throw new Error(`${name}: actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`); };
+const has = (haystack, needle) => haystack.includes(needle);
+const readDist = rel => readFile(path.join(dist, rel), 'utf8');
+const exists = async rel => { try { await stat(path.join(dist, rel)); return true; } catch { return false; } };
+const songs = JSON.parse(await readFile(path.join(root, 'data', 'songs.json'), 'utf8')).songs;
+const unlock = JSON.parse(await readFile(path.join(root, 'data', 'unlock.json'), 'utf8'));
+const pathId = id => /^\d+$/.test(id) ? id : `id-${Array.from(id, c => c.codePointAt(0).toString(16)).join('-')}`;
+const htmlFiles = [];
+async function walk(dir) { for (const entry of await readdir(dir, { withFileTypes: true })) { const file = path.join(dir, entry.name); if (entry.isDirectory()) await walk(file); else if (entry.name.endsWith('.html')) htmlFiles.push(file); } }
+await walk(dist);
+const relative = file => path.relative(dist, file).replaceAll('\\', '/');
+const htmlTexts = await Promise.all(htmlFiles.map(async file => ({ file: relative(file), text: await readFile(file, 'utf8') })));
+const scripts = htmlTexts.filter(page => /<script\b/i.test(page.text));
+check('总 HTML 数', htmlFiles.length, 511);
+const detailPages = htmlFiles.filter(file => /^songs[\\/](?:\d+|id-)[^\\/]+[\\/]index\.html$/.test(relative(file)));
+check('详情页数等于 songs.json', detailPages.length, songs.length);
+const required = ['index.html','songs/index.html','jubility/index.html','unlock/index.html','versions/index.html','updates/index.html','gameplay/index.html','dans/index.html','guide/index.html','about/index.html','404.html','sitemap-index.xml','search-index.json','robots.txt'];
+for (const file of required) check(`产物存在 ${file}`, await exists(file), true);
+check('脚本数量统计', scripts.length >= 1, true);
+check('含增强脚本的页面数', scripts.length >= 1, true);
+const home = await readDist('index.html'); const library = await readDist('songs/index.html'); const unlockHtml = await readDist('unlock/index.html'); const gameplay = await readDist('gameplay/index.html');
+const numeric = songs.find(song => /^\d+$/.test(song.songId)); const special = songs.find(song => !/^\d+$/.test(song.songId));
+const numericUrl = `songs/${pathId(numeric.songId)}/index.html`; const specialUrl = `songs/${pathId(special.songId)}/index.html`;
+const detail = await readDist(numericUrl); const specialDetail = await readDist(specialUrl);
+const navTerms = ['曲目库','数据','图鉴','关于'];
+for (const page of [home, library, detail, specialDetail, unlockHtml, gameplay, await readDist('about/index.html')]) {
+  check('关键页面 main 静态存在', has(page, '<main'), true);
+  check('关键页面主导航静态存在', has(page, 'aria-label="主导航"'), true);
+  for (const term of navTerms) check(`主导航一级项 ${term}`, has(page, term), true);
+}
+check('曲库二级链接静态存在', /href="\/songs\//.test(library), true);
+check('主导航二级链接静态存在', /href="\/(jubility|unlock|versions|updates|gameplay|dans|guide|about)\//.test(home), true);
+check('首页正式 Logo', has(home, '/brand/jubeat-music-cube-logo.webp'), true);
+const tokens = await readFile(path.join(root,'src/styles/tokens.css'),'utf8');
+check('Blue Candy tokens', tokens.includes('--w-bg') && tokens.includes('--w-hit') && tokens.includes('--w-panel'), true);
+check('来源语义', detail.includes('字段来源') || detail.includes('来源'), true);
+const anyConflict = htmlTexts.some(page => page.file.startsWith('songs/') && page.text.includes('字段差异说明'));
+check('冲突面板语义', anyConflict, true);
+check('unlock 双轨数字', ['179','185','差额','未匹配原始条目清单'].every(x => unlockHtml.includes(x)), true);
+check('数值 URL', await exists(numericUrl), true);
+check('特殊 ID URL', await exists(specialUrl), true);
+const layout = await readFile(path.join(root,'src/components/Layout.astro'),'utf8');
+check('无 JS 导航默认可见 CSS', layout.includes('html.js .global-nav{display:none}') && layout.includes('html:not(.js) .nav-toggle{display:none}'), true);
+check('无 JS 导航真实结构', home.includes('<nav') && home.includes('<details') && home.includes('<summary'), true);
+check('无 JS 正文静态', detail.includes('谱面难度') && library.includes('全部结果'), true);
+const result = { round:'t24-static', generatedAt:new Date().toISOString(), historicalBrowserEvidence:'unavailable/overwritten', browserLimitations:'本轮只执行 Node 静态产物验收；历史 Chrome evidence 不可恢复且不作为支持证据。Chrome/CDP harness 生命周期不稳定，未假称浏览器结果。', counts:{ songs:songs.length, detailPages:detailPages.length, totalHtml:htmlFiles.length, scriptTags:scripts.length, pagesContainingScript:scripts.length }, expected:{ totalHtml:511, detailPages:songs.length, songs:500 }, checks, passed:checks.length, failed:0 };
+await writeFile(path.join(root,'docs/static-final-evidence.json'), JSON.stringify(result,null,2)+'\n');
+console.log(`static-final: ${result.passed} passed / 0 failed; HTML=${htmlFiles.length}, details=${detailPages.length}, scripts=${scripts.length}`);

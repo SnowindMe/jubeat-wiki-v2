@@ -1,0 +1,4 @@
+name = "jubeat-music-cube-wiki-v2"
+compatibility_date = "2026-09-21"
+pages_build_output_dir = "./dist"
+# Cloudflare Pages static deployment. Future same-origin Pages Functions live in ./functions/.

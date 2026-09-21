@@ -1,0 +1,6 @@
+---
+import Layout from '../components/Layout.astro'; import PageIntro from '../components/PageIntro.astro';
+const tiers=['入门：熟悉 4×4 面板与基础节拍。','进阶：建立读谱与双手分工。','挑战：针对高密度、出张与混合节奏训练。','段位资料：当前离线数据层未包含可验证的完整段位条件。'];
+---
+<Layout title="段位图鉴" description="jubeat 段位与练习阅读入口。" section="catalogue"><PageIntro eyebrow="CATALOGUE / DAN" title="段位图鉴" lead="段位是把读谱、节奏与稳定性放在同一组课题里的练习坐标。本站不会以猜测补全尚未核验的条件。"/><section class="w-panel"><h2>阅读方式</h2><ol>{tiers.map(t=><li>{t}</li>)}</ol><p>需要从歌曲开始安排练习时，可按等级浏览 <a href="/songs/">曲目库</a>，并在 <a href="/gameplay/#glossary">玩法术语表</a> 中确认用语。</p></section></Layout>
+<style>h2{font-family:var(--w-font-display)}li{margin:var(--w-s-3) 0}</style>

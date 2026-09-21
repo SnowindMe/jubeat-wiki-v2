@@ -1,0 +1,32 @@
+{
+  "name": "jubeat-music-cube-wiki-v2",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "verify:data": "node scripts/verify-data.mjs",
+    "verify:acceptance": "node scripts/verify-acceptance.mjs",
+    "compress:jackets": "node scripts/compress-jackets.mjs",
+    "verify:platform-build": "node scripts/verify-platform-build.mjs",
+    "verify:static-final": "node scripts/verify-static-final.mjs",
+    "audit:browser": "node scripts/audit-browser.mjs all",
+    "audit:browser:responsive": "node scripts/audit-browser.mjs responsive",
+    "audit:browser:ui": "node scripts/audit-browser.mjs ui",
+    "audit:browser:nojs": "node scripts/audit-browser.mjs nojs"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "3.1.6",
+    "astro": "4.16.0",
+    "extend": "3.0.2",
+    "fdir": "6.4.6"
+  },
+  "devDependencies": {
+    "vite": "5.4.19"
+  }
+}

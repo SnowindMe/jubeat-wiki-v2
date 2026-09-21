@@ -1,0 +1,12 @@
+{
+  "round": "t21-cli",
+  "generatedAt": "2026-09-20T23:13:07.415Z",
+  "mode": "ui",
+  "records": [],
+  "assertions": [],
+  "lifecycle": {
+    "method": "Chrome CLI short-lived processes",
+    "noWebSocketHandles": true,
+    "serverClosed": false
+  }
+}

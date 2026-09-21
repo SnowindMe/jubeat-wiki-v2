@@ -1,0 +1,6 @@
+---
+import Layout from '../components/Layout.astro'; import PageIntro from '../components/PageIntro.astro'; import { meta, unlock, jubility } from '../lib/data';
+const updates=[['数据快照','生成于 '+new Date(meta.generatedAt).toLocaleString('zh-CN',{timeZone:'UTC'})+' UTC','本站以离线数据构建，构建不联网。'],['Jubility 表','资料日期 '+jubility.updatedAt,`${jubility.entries.length} 条理论值记录已纳入数据页。`],['充能池 Phase 2','2026-06-30',`五池共 ${unlock.poolRawTotal} 条原始曲目记录，未匹配项保留标记。`]];
+---
+<Layout title="更新情报" description="本站收录数据的快照和已知更新记录。" section="catalogue"><PageIntro eyebrow="CATALOGUE / BULLETIN" title="更新情报" lead="本站只发布可追溯的资料状态；不是实时运营公告，也不会把未知信息包装成更新。"/><div class="feed">{updates.map(([title,date,text])=><article class="w-panel"><time>{date}</time><h2>{title}</h2><p>{text}</p></article>)}</div></Layout>
+<style>.feed{display:grid;gap:var(--w-s-4);max-width:800px}.feed time{font-family:var(--w-font-data);font-size:var(--w-fs-sm);color:var(--w-hit-deep)}.feed h2{margin:var(--w-s-2) 0;font-family:var(--w-font-display)}.feed p{margin:0;color:var(--w-ink-soft)}</style>

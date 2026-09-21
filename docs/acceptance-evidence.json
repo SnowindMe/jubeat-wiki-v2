@@ -1,0 +1,65 @@
+{
+  "generatedAt": "2026-09-21T00:00:22.003Z",
+  "checks": [
+    {
+      "name": "搜索索引",
+      "status": "passed",
+      "evidence": "500 条，URL 与规则一致"
+    },
+    {
+      "name": "语义数值 URL",
+      "status": "passed",
+      "evidence": "494 首数值 ID 为 /songs/<songId>/"
+    },
+    {
+      "name": "特殊 ID 可逆编码",
+      "status": "passed",
+      "evidence": "6 个 title: 型 ID 使用 id-十六进制码点路径"
+    },
+    {
+      "name": "内部链接与 sitemap",
+      "status": "passed",
+      "evidence": "所有歌曲 URL 均出现在 sitemap"
+    },
+    {
+      "name": "曲绘资源预算",
+      "status": "passed",
+      "evidence": "492 张曲绘全部 ≤30KB"
+    },
+    {
+      "name": "部署与 Functions 预留",
+      "status": "passed",
+      "evidence": "Node、Vercel、Cloudflare Pages 与未来 API 文档齐全；本脚本不部署"
+    },
+    {
+      "name": "无 JS 静态可读性",
+      "status": "passed",
+      "evidence": "构建 HTML 直接含曲库“全部结果”和详情“谱面难度”正文"
+    },
+    {
+      "name": "Lighthouse：首页、曲目库、详情、玩法页",
+      "status": "skipped",
+      "reason": "本项目未安装 Playwright/Puppeteer 或 Lighthouse CLI，且验收环境未提供可连接浏览器；未伪造浏览器结果。请安装浏览器工具后执行对应审计。"
+    },
+    {
+      "name": "axe：关键页面",
+      "status": "skipped",
+      "reason": "本项目未安装 Playwright/Puppeteer 或 Lighthouse CLI，且验收环境未提供可连接浏览器；未伪造浏览器结果。请安装浏览器工具后执行对应审计。"
+    },
+    {
+      "name": "视口横向溢出：375/768/1440",
+      "status": "skipped",
+      "reason": "本项目未安装 Playwright/Puppeteer 或 Lighthouse CLI，且验收环境未提供可连接浏览器；未伪造浏览器结果。请安装浏览器工具后执行对应审计。"
+    },
+    {
+      "name": "双平台产物断言",
+      "status": "passed",
+      "evidence": "Vercel 与 Cloudflare 均配置为 npm run build → dist；平台构建清单已生成。"
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "skipped": 3,
+    "failed": 0
+  }
+}

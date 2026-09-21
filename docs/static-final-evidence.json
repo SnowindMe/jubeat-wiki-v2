@@ -1,0 +1,454 @@
+{
+  "round": "t24-static",
+  "generatedAt": "2026-09-21T00:00:30.642Z",
+  "historicalBrowserEvidence": "unavailable/overwritten",
+  "browserLimitations": "本轮只执行 Node 静态产物验收；历史 Chrome evidence 不可恢复且不作为支持证据。Chrome/CDP harness 生命周期不稳定，未假称浏览器结果。",
+  "counts": {
+    "songs": 500,
+    "detailPages": 500,
+    "totalHtml": 511,
+    "scriptTags": 511,
+    "pagesContainingScript": 511
+  },
+  "expected": {
+    "totalHtml": 511,
+    "detailPages": 500,
+    "songs": 500
+  },
+  "checks": [
+    {
+      "name": "总 HTML 数",
+      "pass": true,
+      "actual": 511,
+      "expected": 511
+    },
+    {
+      "name": "详情页数等于 songs.json",
+      "pass": true,
+      "actual": 500,
+      "expected": 500
+    },
+    {
+      "name": "产物存在 index.html",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "产物存在 songs/index.html",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "产物存在 jubility/index.html",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "产物存在 unlock/index.html",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "产物存在 versions/index.html",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "产物存在 updates/index.html",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "产物存在 gameplay/index.html",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "产物存在 dans/index.html",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "产物存在 guide/index.html",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "产物存在 about/index.html",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "产物存在 404.html",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "产物存在 sitemap-index.xml",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "产物存在 search-index.json",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "产物存在 robots.txt",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "脚本数量统计",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "含增强脚本的页面数",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面 main 静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面主导航静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 曲目库",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 数据",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 图鉴",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 关于",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面 main 静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面主导航静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 曲目库",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 数据",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 图鉴",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 关于",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面 main 静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面主导航静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 曲目库",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 数据",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 图鉴",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 关于",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面 main 静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面主导航静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 曲目库",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 数据",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 图鉴",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 关于",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面 main 静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面主导航静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 曲目库",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 数据",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 图鉴",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 关于",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面 main 静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面主导航静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 曲目库",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 数据",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 图鉴",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 关于",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面 main 静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "关键页面主导航静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 曲目库",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 数据",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 图鉴",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航一级项 关于",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "曲库二级链接静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "主导航二级链接静态存在",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "首页正式 Logo",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "Blue Candy tokens",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "来源语义",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "冲突面板语义",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "unlock 双轨数字",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "数值 URL",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "特殊 ID URL",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "无 JS 导航默认可见 CSS",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "无 JS 导航真实结构",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "无 JS 正文静态",
+      "pass": true,
+      "actual": true,
+      "expected": true
+    }
+  ],
+  "passed": 72,
+  "failed": 0
+}

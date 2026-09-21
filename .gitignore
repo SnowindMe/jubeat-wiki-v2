@@ -1,0 +1,26 @@
+# 依赖与构建产物
+node_modules/
+dist/
+.astro/
+
+# 浏览器审计临时资料
+.chrome-audit-*/
+
+# 构建日志
+*.log
+
+# 受版权保护的第三方数据（曲目清单、定数、Jubility、充能、考据、曲绘）
+# 仅保留代码与可公开的元数据结构；这些数据需在本地由构建脚本再生成。
+data/songs.json
+data/difficulty-index.json
+data/jubility.json
+data/unlock.json
+data/data-meta.json
+data/data-conflicts.json
+data/audit-report.md
+data/_audit/
+public/jackets/
+
+# 平台本地状态
+.wrangler/
+.vercel/

@@ -1,0 +1,6 @@
+---
+interface Props { eyebrow?: string; title: string; lead: string; }
+const { eyebrow, title, lead } = Astro.props;
+---
+<header class="intro"><span>{eyebrow}</span><h1>{title}</h1><p>{lead}</p></header>
+<style>.intro{margin:var(--w-s-8) 0 var(--w-s-6)}.intro span{color:var(--w-hit-deep);font-family:var(--w-font-data);font-size:var(--w-fs-sm);font-weight:700}.intro h1{margin:var(--w-s-2) 0;font-family:var(--w-font-display);font-size:var(--w-fs-3xl);line-height:var(--w-lh-tight)}.intro p{max-width:72ch;margin:0;color:var(--w-ink-soft);font-size:var(--w-fs-lg)}</style>
