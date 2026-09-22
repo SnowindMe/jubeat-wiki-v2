@@ -16,7 +16,7 @@
 //       其余预览器会被暂停（见 activePlayer 全局注册表）。
 //
 // 动画模型（对照官方手感）：
-//   tap   : 展开 475ms -> 收合 475ms，共 950ms
+//   tap   : 展开 375ms -> 收合 375ms，共 750ms
 //   hold  : 起点按下 -> 三角朝起点收拢 -> 按住（保持发光）-> 终点处收合 80ms
 //
 // 约束：无 JS 时页面仍可读（面板空态 + 统计文字，控件不渲染）。
@@ -25,8 +25,8 @@ import { fetchChartSet, fetchAssets, normDiff } from './chart-source.js';
 import { findMczForTitle } from './mcz-match.js';
 import { analyzeAudio, AudioClockPlayer } from './chart-audio.js';
 
-// tap 动画总时长 0.95s：前段展开（从整格满圈向内收缩），后段收合消失。
-const TAP_DURATION = 0.95; // tap 从出现到消失的总时长
+// tap 动画总时长 0.75s：前段展开（从整格满圈向内收缩），后段收合消失。
+const TAP_DURATION = 0.75; // tap 从出现到消失的总时长
 const TAP_OPEN = TAP_DURATION * 0.5; // tap 展开
 const TAP_CLOSE = TAP_DURATION * 0.5; // tap 收合
 const HOLD_CLOSE = 0.08; // 长押终点后收合
