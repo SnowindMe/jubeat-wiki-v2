@@ -157,6 +157,43 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
   --jp-hold: 0;
 }
 
+/* ---- 数字提示：格内右下角显示该音符的全谱序号 ----
+   只在音符处于活动状态时出现（由 render 写入 data-jp-seq），
+   空格子不放数字，避免整块面板变成数字表。 */
+.jp-key[data-jp-seq]::after {
+  content: attr(data-jp-seq);
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  font-size: 9px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--w-ink, #fff);
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.85), 0 0 1px rgba(0, 0, 0, 0.9);
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* ---- 双押提示：同一时刻要同时按的格子用同一个色相高亮 ----
+   --jp-simul 是该组的色相角（黄金角跳色，相邻组差异明显）。
+   单押不带这个变量，所以不会被染色。 */
+.jp-key.is-simul.is-tap::before {
+  border-color: hsl(var(--jp-simul) 92% 62%);
+  background: color-mix(in oklab, hsl(var(--jp-simul) 92% 62%) 30%, transparent);
+  box-shadow: 0 0 8px hsl(var(--jp-simul) 92% 62% / 0.55);
+}
+.jp-key.is-simul.is-tap {
+  border-color: hsl(var(--jp-simul) 92% 62%);
+}
+/* 长押也参与同时押时，起点/三角头同样染色 */
+.jp-key.is-simul.is-hold-root,
+.jp-key.is-simul.is-hold-head {
+  border-color: hsl(var(--jp-simul) 92% 62%);
+  box-shadow: 0 0 0 2px hsl(var(--jp-simul) 92% 62% / 0.5), 0 0 14px var(--w-hit-wash);
+}
+
 /* ---- tap：外圈从外向内收缩，到中心即消失 ----
    --jp-anim: 0(刚出现/贴满整格) .. 1(收缩到中心=消失) */
 .jp-key.is-tap {
@@ -178,33 +215,73 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
   pointer-events: none;
 }
 
-/* ---- hold：按下 -> 三角朝起点收拢 -> 持续按住（发光）-> 松开收合 ----
-   长押全程停在起点格上，不跨格移动。
-   --jp-hold: 0(刚开始收拢) .. 1(已收拢=按住态) */
-.jp-key.is-fold,
-.jp-key.is-held {
+/* ---- hold：长按 + 三角头 + 连接线 ----
+   jubeat 的长押是「长按」：手指按住起点格不放，起点格全程高亮。
+   谱面用 endindex 标出这条长押的去向，所以：
+     - .is-hold-root = 长按位置（起点格），持续到整段结束。
+     - .is-hold-head = 三角头，沿起点 -> 终点路径前进，尖端朝前进方向。
+     - .is-hold-trail = 连接线，铺在路径上，随三角头前进而缩短。
+   --jp-hold: 0(还在起点) .. 1(已到终点)
+   --jp-dir : 0=右 1=下 2=左 3=上（三角头朝向） */
+
+/* 起点格：长按位置，全程高亮 */
+.jp-key.is-hold-root {
   background: var(--w-hit);
   border-color: var(--w-hit);
+  box-shadow: 0 0 0 2px var(--w-hit-wash), 0 0 12px var(--w-hit-wash);
 }
-/* 楔形三角：尖端固定在左侧（指向起点），尾端随 --jp-hold 向左收拢 */
-.jp-key.is-fold::after {
+
+/* 连接线：走过的格子留一条带，把起点和三角头连起来 */
+.jp-key.is-hold-trail {
+  background: color-mix(in oklab, var(--w-hit) 48%, var(--w-panel));
+  border-color: color-mix(in oklab, var(--w-hit) 48%, var(--w-seam-soft));
+}
+/* 连接条：贴着格心的一条粗线，视觉上把相邻格串起来 */
+.jp-key.is-hold-trail::before {
   content: "";
   position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    90deg,
-    color-mix(in oklab, var(--w-hit) 95%, white) 0%,
-    color-mix(in oklab, var(--w-hit) 55%, transparent) 100%
-  );
-  clip-path: polygon(
-    0% 50%,
-    calc(100% - var(--jp-hold) * 100%) 0%,
-    calc(100% - var(--jp-hold) * 100%) 100%
-  );
-  filter: drop-shadow(0 0 2px var(--w-hit-wash));
+  inset: 34% 0;
+  background: color-mix(in oklab, var(--w-hit) 82%, white);
+  opacity: 0.55;
+  pointer-events: none;
 }
-/* 收拢完成后进入按住态：均匀发光，不再有三角 */
-.jp-key.is-held { box-shadow: 0 0 0 2px var(--w-hit-wash), 0 0 12px var(--w-hit-wash); }
+
+/* 三角头：短板面朝后、尖端指向前进方向 */
+.jp-key.is-hold-head {
+  background: var(--w-hit);
+  border-color: color-mix(in oklab, var(--w-hit) 80%, white);
+  box-shadow: 0 0 0 2px var(--w-hit-wash), 0 0 14px var(--w-hit-wash);
+}
+.jp-key.is-hold-head::after {
+  content: "";
+  position: absolute;
+  inset: 12%;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--w-hit) 92%, white) 0%,
+    color-mix(in oklab, var(--w-hit) 78%, transparent) 100%
+  );
+  filter: drop-shadow(0 0 3px var(--w-hit-wash));
+  pointer-events: none;
+}
+/* 三角头同时是起点格时（还没出发）盖一枚小三角，避免和长按高亮打架 */
+.jp-key.is-hold-head.is-hold-root::after { inset: 22%; }
+/* 朝右：尖端在右缘 */
+.jp-key.is-hold-head[style*="--jp-dir: 0"]::after {
+  clip-path: polygon(0% 0%, 60% 50%, 0% 100%);
+}
+/* 朝下 */
+.jp-key.is-hold-head[style*="--jp-dir: 1"]::after {
+  clip-path: polygon(0% 0%, 100% 0%, 50% 60%);
+}
+/* 朝左 */
+.jp-key.is-hold-head[style*="--jp-dir: 2"]::after {
+  clip-path: polygon(100% 0%, 40% 50%, 100% 100%);
+}
+/* 朝上 */
+.jp-key.is-hold-head[style*="--jp-dir: 3"]::after {
+  clip-path: polygon(0% 100%, 100% 100%, 50% 40%);
+}
 /* 到终点后的收合（复用 tap 的动画变量） */
 .jp-key.is-closing {
   background: color-mix(in oklab, var(--w-hit) calc(var(--jp-anim) * 100%), var(--w-panel));

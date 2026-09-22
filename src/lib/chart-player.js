@@ -25,13 +25,43 @@ import { fetchChartSet, fetchAssets, normDiff } from './chart-source.js';
 import { findMczForTitle } from './mcz-match.js';
 import { analyzeAudio, AudioClockPlayer } from './chart-audio.js';
 
-// tap 动画时长 0.5s：出现后从整格满圈单向收缩，到中心即消失。
-const TAP_DURATION = 0.5; // tap 从出现到消失的总时长
+// tap 动画时长 0.3s：出现后从整格满圈单向收缩，到中心即消失。
+// 500ms 时相邻音符在视觉上会叠在一起，非双押也容易被读成双押，所以再收到 300ms。
+const TAP_DURATION = 0.3; // tap 从出现到消失的总时长
 // 收缩缓动：ease-out cubic。前段收得快（命中感强），尾段轻轻落定，
 // 匀速会让中段显得拖沓 —— 同样的总时长，这样体感明显更利落。
 const easeOutCubic = (p) => 1 - (1 - p) ** 3;
 const HOLD_CLOSE = 0.08; // 长押终点后收合
-const HOLD_FOLD_RATIO = 0.25; // 三角收拢占长押时长的比例
+// —— 长押：起点长按 + 三角头沿路径前进 + 连接线随之前进缩短 ——
+// 前进占比按拍长自适应：0.5 拍也得动得出，12 拍也不能整段都在动。
+const HOLD_SLIDE_PER_BEAT = 0.5; // 每拍分配 50% 行程
+const HOLD_SLIDE_MIN = 0.22; // 前进最少占整段的比例
+const HOLD_SLIDE_MAX = 0.45; // 前进最多占整段的比例
+// 连接线保留比例：三角头走过的地方不留尾巴，线随之前进而缩短。
+// 1.0 = 整条线一直留着；0.5 = 只保留后半段。
+const HOLD_LINE_TAIL = 0.55;
+const PAD_LINE_STEPS = 12; // 连接线插值步数（足够覆盖 3 格对角）
+const PAD_COLS = 4;
+
+/** 格号 1..16 -> {row, col}（1-based） */
+function keyPoint(k) {
+  return { row: Math.floor((k - 1) / PAD_COLS) + 1, col: ((k - 1) % PAD_COLS) + 1 };
+}
+
+/**
+ * 三角头朝向：0=右 1=下 2=左 3=上。
+ * 取位移的主要分量（|Δcol| >= |Δrow| 走横向，否则纵向），
+ * 同键长押没有位移，按「向右」处理即可（此时三角只是个端点标记）。
+ */
+function dirOf(h) {
+  const a = keyPoint(h.key);
+  const b = keyPoint(h.endKey);
+  const dc = b.col - a.col;
+  const dr = b.row - a.row;
+  if (Math.abs(dc) >= Math.abs(dr)) return dc < 0 ? 2 : 0;
+  return dr < 0 ? 3 : 1;
+}
+
 const PAD_KEYS = 16;
 
 /** 当前正在出声的预览器。全局唯一，保证「不能同时播放」。 */
@@ -160,6 +190,38 @@ export function mountChart(root, chart) {
   if (!pad.childElementCount) pad.innerHTML = padMarkup();
   const keyEls = [...pad.querySelectorAll('.jp-key')];
 
+  // —— 音符编号与双押分组 ——
+  // 序号：全谱递增（tap 与 hold 一起排，按时间先后），格内显示让玩家能对照谱面。
+  // 双押组：拍位相同（容差 SIMUL_EPS）的 tap 归为一组，同组用同色高亮。
+  //   只对 >=2 个成员的组生效 —— 单押不染色，避免满屏花。
+  const SEQ_FIELDS = (() => {
+    const all = [
+      ...taps.map((x) => ({ kind: 'tap', t: x.t, key: x.key, ref: x })),
+      ...holds.map((x) => ({ kind: 'hold', t: x.t, key: x.key, ref: x })),
+    ].sort((a, b) => a.t - b.t || a.key - b.key);
+    all.forEach((x, i) => { x.ref.seq = i + 1; });
+    return all;
+  })();
+
+  // 同时押分组：按时间聚簇，簇内 >=2 个就给相同的 group 号
+  const SIMUL_EPS = 0.03; // 30ms 内视为同时
+  let groupNo = 0;
+  {
+    const sorted = SEQ_FIELDS.slice().sort((a, b) => a.t - b.t);
+    let i = 0;
+    while (i < sorted.length) {
+      let j = i;
+      while (j + 1 < sorted.length && sorted[j + 1].t - sorted[i].t <= SIMUL_EPS) j++;
+      const size = j - i + 1;
+      if (size >= 2) {
+        groupNo++;
+        for (let k = i; k <= j; k++) sorted[k].ref.simul = groupNo;
+      }
+      i = j + 1;
+    }
+  }
+  const simulCount = groupNo;
+
   // 时间轴总长：优先用音频真实时长，没有音频时退回「最后一个音符 + 余量」
   const lastT = Math.max(0, ...taps.map((x) => x.t), ...holds.map((x) => x.endT));
   let duration = chart.audioBuffer?.duration || chart.duration || Math.max(1, lastT + 1.2);
@@ -189,54 +251,141 @@ export function mountChart(root, chart) {
     if (playBtn) playBtn.textContent = playing ? '暂停' : elapsed > 0 && elapsed < duration ? '继续' : '播放';
   }
 
-  /** 某键在 t 时刻的状态 */
+  /**
+   * 某键在 t 时刻的长押状态。
+   *
+   * jubeat 的长押是「长按」：手指按住起点格不放，整段都停在起点格。
+   * 但谱面用 endindex 标出这条长押的**去向**，所以视觉上：
+   *   - 起点格 = 长按位置，全程高亮（手指按在这里）。
+   *   - 三角头沿起点 -> 终点的路径前进，标出「还要往哪边拖/长押指向」。
+   *   - 连接线画在这条路径上，**随三角头前进而缩短**：三角头走到哪，
+   *     尾巴就从起点收到哪；滑到终点后整条线收完，只剩起点格保持按住。
+   *
+   * 时间分配：前进占整段的比例按拍长自适应（长押久一点才看得清），
+   * 但有上下限 —— 0.5 拍的极短 hold 也得动得出、12 拍的长 hold 也不能一直在动。
+   */
+  const holdAt = (h, t) => {
+    const span = Math.max(h.endT - h.t, 1e-6);
+    const slideRatio = Math.min(HOLD_SLIDE_MAX, Math.max(HOLD_SLIDE_MIN, h.beats * HOLD_SLIDE_PER_BEAT));
+    const slideEnd = h.t + span * slideRatio;
+    if (t >= h.endT) {
+      if (t < h.endT + HOLD_CLOSE) return { phase: 1, closing: (t - h.endT) / HOLD_CLOSE };
+      return null;
+    }
+    const p = t <= h.t ? 0 : t >= slideEnd ? 1 : (t - h.t) / Math.max(slideEnd - h.t, 1e-6);
+    return { phase: p, closing: 0 };
+  };
+
+  /** 根号缓动：三角头起步快、落点收敛，避免线性插值的机械感 */
+  const easeInOut = (p) => (p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2);
+
+  /** 三角头当前所在格号（1..16） */
+  const headKeyAt = (h, phase) => {
+    if (h.key === h.endKey) return h.key;
+    const a = keyPoint(h.key);
+    const b = keyPoint(h.endKey);
+    const p = easeInOut(phase);
+    const col = Math.round(a.col + (b.col - a.col) * p);
+    const row = Math.round(a.row + (b.row - a.row) * p);
+    return (row - 1) * 4 + col;
+  };
+
+  /**
+   * 连接线覆盖的格号：三角头当前位置附近的一小段。
+   * 关键：线随三角头前进而缩短 —— 三角头走过的地方不留尾巴，
+   * 所以这里取「头部附近窗口」而不是「起点到头部全程」。
+   */
+  const trailAt = (h, phase) => {
+    if (h.key === h.endKey) return [];
+    if (phase >= 1) return [];
+    const a = keyPoint(h.key);
+    const b = keyPoint(h.endKey);
+    const out = [];
+    for (let i = 0; i <= PAD_LINE_STEPS; i++) {
+      const p = easeInOut(i / PAD_LINE_STEPS);
+      const col = Math.round(a.col + (b.col - a.col) * p);
+      const row = Math.round(a.row + (b.row - a.row) * p);
+      const k = (row - 1) * 4 + col;
+      if (out[out.length - 1] !== k) out.push(k);
+    }
+    // 把整条路径按 phase 切成「已走过 / 未走过」，只保留已走过的那一段（即头后方）
+    const travelled = Math.max(0, Math.round(out.length * phase));
+    if (travelled <= 0) return [];
+    // 尾巴也收：只保留头后 HOLD_LINE_TAIL 比例的那一段
+    const seg = out.slice(0, travelled);
+    const keep = Math.max(1, Math.ceil(seg.length * HOLD_LINE_TAIL));
+    return seg.slice(-keep);
+  };
+
   const stateOf = (key, t) => {
     // 长押优先（时长更长）
     for (const h of holds) {
-      // 长押是「按住不放」：整段都停在起点格上，与 endKey 无关。
-      // endKey 是 pad 模式字段，不参与面板渲染。
-      if (h.key !== key) continue;
       if (t < h.t) continue;
-      if (t >= h.endT) {
-        if (t < h.endT + HOLD_CLOSE) return { mode: 'closing', phase: (t - h.endT) / HOLD_CLOSE };
-        continue;
+      const st = holdAt(h, t);
+      if (!st) continue;
+      const head = headKeyAt(h, st.phase);
+      // 起点格 = 长按位置，整段都按住；三角头走到起点格时它同时也是 head
+      if (h.key === key) {
+        if (st.closing) return { mode: 'closing', phase: st.closing };
+        if (head === key) return { mode: 'hold-head', phase: st.phase, dir: dirOf(h), rooted: true, simul: h.simul, seq: h.seq };
+        return { mode: 'hold-root', phase: st.phase, simul: h.simul, seq: h.seq };
       }
-      const span = Math.max(h.endT - h.t, 1e-6);
-      const foldEnd = h.t + span * HOLD_FOLD_RATIO;
-      if (t < foldEnd) return { mode: 'fold', phase: (t - h.t) / Math.max(foldEnd - h.t, 1e-6) };
-      return { mode: 'held', phase: 1 };
+      if (st.closing) continue;
+      if (head === key) return { mode: 'hold-head', phase: st.phase, dir: dirOf(h), rooted: false, simul: h.simul, seq: h.seq };
+      if (trailAt(h, st.phase).includes(key)) return { mode: 'hold-trail', phase: st.phase, simul: h.simul, seq: h.seq };
     }
     // 普通 tap
     for (const x of taps) {
       if (x.key !== key) continue;
       if (t < x.t) continue;
       if (t >= x.t + TAP_DURATION) continue;
-      return { mode: 'tap', phase: (t - x.t) / TAP_DURATION };
+      return { mode: 'tap', phase: (t - x.t) / TAP_DURATION, simul: x.simul, seq: x.seq };
     }
     return { mode: 'idle', phase: 0 };
   };
+
+  /**
+   * 把双押组号映射成一个稳定的色相，让「同时按的一组」一眼可辨。
+   * 用黄金角跳色，相邻的组颜色差异明显且不依赖调色板。
+   */
+  const simulHue = (g) => (g * 137.508) % 360;
 
   function render(t) {
     for (let i = 0; i < keyEls.length; i++) {
       const el = keyEls[i];
       const st = stateOf(i + 1, t);
-      el.classList.remove('is-tap', 'is-fold', 'is-held', 'is-closing');
+      el.classList.remove('is-tap', 'is-hold-head', 'is-hold-trail', 'is-hold-root', 'is-closing', 'is-simul');
+      // 双押提示：同组共用同一个色相变量，单押不染色
+      if (st.simul) {
+        el.classList.add('is-simul');
+        el.style.setProperty('--jp-simul', String(Math.round(simulHue(st.simul))));
+      } else {
+        el.style.removeProperty('--jp-simul');
+      }
       if (st.mode === 'tap') {
         // 单向收缩 + ease-out：整段单调 0 -> 1，收缩到中心即消失，不做反向散开。
         el.classList.add('is-tap');
         el.style.setProperty('--jp-anim', String(easeOutCubic(st.phase)));
-      } else if (st.mode === 'fold') {
-        el.classList.add('is-fold');
+        if (st.seq) el.dataset.jpSeq = String(st.seq);
+      } else if (st.mode === 'hold-head') {
+        el.classList.add('is-hold-head');
+        if (st.rooted) el.classList.add('is-hold-root');
         el.style.setProperty('--jp-hold', String(st.phase));
-      } else if (st.mode === 'held') {
-        el.classList.add('is-held');
-        el.style.setProperty('--jp-hold', '1');
+        el.style.setProperty('--jp-dir', String(st.dir));
+        if (st.seq) el.dataset.jpSeq = String(st.seq);
+      } else if (st.mode === 'hold-trail') {
+        el.classList.add('is-hold-trail');
+        el.style.setProperty('--jp-hold', String(st.phase));
+      } else if (st.mode === 'hold-root') {
+        el.classList.add('is-hold-root');
+        el.style.setProperty('--jp-hold', String(st.phase));
       } else if (st.mode === 'closing') {
         el.classList.add('is-closing');
         el.style.setProperty('--jp-anim', String(1 - st.phase));
       } else {
         el.style.setProperty('--jp-anim', '0');
         el.style.setProperty('--jp-hold', '0');
+        delete el.dataset.jpSeq;
       }
     }
   }

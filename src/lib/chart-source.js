@@ -37,7 +37,7 @@ export async function mczForSong(songId) {
 
 /**
  * 把 Malody .mc 文本转成播放器要的结构。
- * @returns {{taps:Array<{key:number,t:number}>, holds:Array<{key:number,endKey:number,t:number,endT:number}>, stats:object, bpm:number|null}}
+ * @returns {{taps:Array<{key:number,t:number}>, holds:Array<{key:number,endKey:number,t:number,endT:number,beats:number}>, stats:object, bpm:number|null}}
  */
 function toPlayable(mcText, fallbackBpm) {
   const parsed = parseMc(mcText);
@@ -47,12 +47,19 @@ function toPlayable(mcText, fallbackBpm) {
 
   // .mc 的 index/endindex 是 0-based（实测取值 0..15），
   // 而渲染端按 1..16 的 data-key 取面板格，所以这里统一 +1 归一到 1..16。
+  //
+  // hold 是滑动音符（pad 模式）：手指从起点格滑到终点格。
+  // 实测天空の華三难度 146 个 hold 全部 key !== endKey —— 跨键是常态而非例外；
+  // .mc 只有 beat/index/endbeat/endindex 四个字段，没有中途插值路径，
+  // 所以轨迹就是起点格 -> 终点格的直线插值。
   const taps = notes.map((n) => ({ key: n.key + 1, t: round4(beatToSeconds(bpms, n.beat)) }));
   const holds = holdsRaw.map((h) => ({
     key: h.key + 1,
     endKey: h.endKey != null ? h.endKey + 1 : h.key + 1,
     t: round4(beatToSeconds(bpms, h.startBeat)),
     endT: round4(beatToSeconds(bpms, h.endBeat)),
+    // 拍长供渲染端分配滑动时长（实测差异极大：0.5 ~ 12 拍）
+    beats: round4(h.endBeat - h.startBeat),
   }));
 
   return {
