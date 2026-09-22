@@ -1,4 +1,6 @@
-# jubeat 音乐魔方 WIKI v2
+# 
+
+# **<div align="center">jubeat 音乐魔方 WIKI v2</div>**
 
 以 Astro 构建的纯静态 WIKI。站点采用 **Blue Candy Cabinet** 蓝白糖果机台视觉与正式授权 Logo；构建、预览和已提交的数据均不依赖运行时联网。
 
@@ -42,9 +44,7 @@ npm run build        # prebuild 钩子会先调用 fetch:data
 - 无 token 且数据缺失 → **明确报错退出**，不会构建出空站
 
 `DATA_REPO_TOKEN` 必须是**细粒度 PAT**，只勾选该私有仓库、权限只给
-**Contents: Read-only**。Vercel 项目环境变量中已配置。
-
-**运维、架构决策与历史踩坑记录见 [`docs/PROJECT-NOTES.md`](docs/PROJECT-NOTES.md)。**
+**Contents: Read-only**。Vercel 项目环境变量中已配置。**运维、架构决策与历史踩坑记录见 [`docs/PROJECT-NOTES.md`](docs/PROJECT-NOTES.md)。**
 
 ## 本地开发
 

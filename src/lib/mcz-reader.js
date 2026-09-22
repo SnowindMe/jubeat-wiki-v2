@@ -125,16 +125,22 @@ function repoPathOf(url) {
  * setCdnBase / swapCdnHost 要的是含 `<owner>/<repo>@<branch>/` 的完整前缀。
  * 少了这一段就会拼出 404 的地址（见 CDN_PREFIX_RE 的说明）。
  *
+ * **幂等**：如果 base 里已经含仓库路径段（例如 raceCdnNodes 返回的 ranked 项的
+ * `.node.base` 本身就是补全过的），则原样返回 —— 再追加一次会变成
+ * `.../gh/<repo>/<repo>/` 而 404。
+ *
  * @param {Array<{id:string, base:string, label?:string}>} nodes
  * @param {string} sampleUrl 任一节点的完整 .mcz URL（用来取仓库路径段）
  */
 export function nodesWithBase(nodes, sampleUrl) {
   const repo = repoPathOf(sampleUrl);
   if (!repo) return nodes.map((n) => ({ ...n }));
-  return nodes.map((n) => ({
-    ...n,
-    base: n.base.endsWith('/') ? n.base + repo.replace(/^\//, '') : n.base + repo,
-  }));
+  return nodes.map((n) => {
+    const base = n.base;
+    // repoPathOf 返回的 repo 不带前导 /（/gh/ 已被正则吃掉），无需再 strip。
+    if (/\/gh\/[^/]+\/[^/]+?\/$/.test(base)) return { ...n };
+    return { ...n, base: base.endsWith('/') ? base + repo : base + '/' + repo };
+  });
 }
 
 /**
@@ -284,7 +290,12 @@ async function geometry(url) {
       const buf = new Uint8Array(await r.arrayBuffer());
       const cr = r.headers.get('content-range') || '';
       declared = Number(cr.match(/bytes\s+\d+-\d+\/(\d+)/)?.[1] || 0);
-      if (!declared && r.ok) declared = Number(r.headers.get('content-length') || 0);
+      // 只有「整个响应就是整个文件」（200）时 content-length 才等于总长。
+      // 206 的 content-length 是**本次区间的长度**（1024），照抄会把 1 KB 当成
+      // 整个 .mcz 的总长，随后 readZipEntriesOnce 算出的尾部窗口起点直接为 0，
+      // 必然报「不是有效的 zip（未找到 EOCD）」。这种错在 content-range 被 CORS
+      // 挡住时特别容易发生，所以只认 200。
+      if (!declared && r.status === 200) declared = Number(r.headers.get('content-length') || 0);
       // 没拿到 content-range 时只能退回「响应体长度」，但那只覆盖 1 KB，
       // 不能当作总长，所以这种情况交给下面的 HEAD 兜底。
       if (declared) realLen = declared;
@@ -300,6 +311,84 @@ async function geometry(url) {
         /* 交给调用方报错 */
       }
     }
+
+    // ── 自校正：探测到的总长可能是「虚高」的 ──
+    //
+    // 为什么必须校：浏览器跨域时 `content-range` 属于非 safelisted 响应头，
+    // 节点若没有 `Access-Control-Expose-Headers: content-range`，JS 读到的
+    // `r.headers.get('content-range')` 是 null —— 于是上面的 1 KB 探测拿不到
+    // 总长，只能退回 HEAD。而 HEAD 走的是**压缩协商**通道：jsDelivr 对 .mcz
+    // 会回 `content-encoding: br` 并声明压缩前的 `content-length` = 1805303，
+    // 而 Range 通道的真实字节数是 1805295（实测 cdn.jsdelivr.net 与
+    // gcore.jsdelivr.net 恒定虚高 8 字节，见 mcz-match.js 节点表注释）。
+    //
+    // 虚高的后果不是「多读 8 字节」这么轻：readZipEntriesOnce 拿这个总长去算
+    // 末尾 64 KB 窗口的起点（totalSize - 65536），起点整体后移 8 字节，由 EOCD
+    // 反推出的中央目录偏移就少算 8，CDH 签名匹配不上，于是走「按 EOCD 记录偏移
+    // 单独请求」的兜底，读出的条目名/compSize 全错 —— 最终表现为
+    // 「不是有效的 zip（未找到 EOCD）」或「条目数据不足（需要 N，收到 0）」。
+    //
+    // 校法：拿「末尾 64 KB 窗口」当探针，请求 [L-65536, L-1]（L = 探测到的总长）。
+    //   · 若 L 虚高，节点会诚实截断到文件尾：
+    //       - 带 content-range  → 起点/终点/总长三段全是真值，直接采用；
+    //       - 不带（CORS 未暴露）→ body 长度 = 真实总长 - (L-65536)，
+    //         即 realLen = (L - 65536) + body.length，同样能反推；
+    //   · 若 L 准确，节点会回满 64 KB，body 长度等于请求长度 —— 此时不动，
+    //     保持原值即可（虚高量为 0）。
+    // 探针窗口与 readZipEntriesOnce 随后要取的窗口完全重合，因此这次探测
+    // 顺带把该区段喂进 HTTP 缓存，不额外增加实际传输量。
+    if (declared > 8192) {
+      // 探针区间故意「恰好越界」：从 declared 稍后一点取一小段。
+      //   · declared 准确 → 该区间整体越界，节点回 416（或夹回末尾），
+      //     收到 0 字节，判定为「无需校正」；
+      //   · declared 虚高 n 字节 → 区间落在文件内，能正常收到声明长度，
+      //     且 content-range 的 total 与真实不符 —— 用实收字节数反推。
+      // 用短区间（而非早先的 8 KB 窗口）是为了让「实收 vs 请求」的差值
+      // 精确等于虚高量，且越界时被掐断的代价最小。
+      const probeStart = Math.max(0, declared - 64);
+      const probeEnd = declared + 64;
+      const want = probeEnd - probeStart + 1;
+      // 拆开「取头」与「读体」：越界被掐断时 body 会抛错，但响应头已可用。
+      const pr = await fetchWithRetry(real, {
+        headers: { Range: `bytes=${probeStart}-${probeEnd}` },
+      }).catch(() => null);
+      if (pr && (pr.status === 206 || pr.status === 200)) {
+        const pm = (pr.headers.get('content-range') || '').match(/bytes\s+(\d+)-(\d+)\/(\d+)/);
+        let got = 0;
+        try {
+          // 必须逐块流式读、不能用 arrayBuffer()：区间越界时节点会先发响应头、
+          // 发一部分 body 再掐断连接，arrayBuffer() 一抛错已收到的字节就全丢了；
+          // 而这些 partial 字节正是下面反推真实末尾的唯一依据
+          //（与 readRange 的处理同理）。
+          const reader = pr.body ? pr.body.getReader() : null;
+          if (reader) {
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (value && value.byteLength) got += value.byteLength;
+            }
+          } else {
+            got = new Uint8Array(await pr.arrayBuffer()).length;
+          }
+        } catch { /* 掐断：got 保留已收到的 partial，按短给反推 */ }
+        try {
+          const realEnd = pm ? Number(pm[2]) : NaN;
+          const crTotal = pm ? Number(pm[3]) : NaN;
+          if (Number.isFinite(realEnd) && Number.isFinite(crTotal) && realEnd + 1 < crTotal) {
+            // 节点自报的 total 与它实际给出的 end 自相矛盾 ⇒ end+1 才是真相
+            realLen = realEnd + 1;
+            declared = realLen;
+          } else if (got > 0 && got < want) {
+            // body 短给：区间尾部越出了真实文件 ⇒ 真实末尾 = probeStart + got - 1
+            realLen = probeStart + got;
+            declared = realLen;
+          }
+        } catch {
+          /* 判定本身出错不影响外层 */
+        }
+      }
+    }
+
     return { declaredLen: declared, realLen: realLen || declared, skew: 0 };
   })();
 
@@ -323,7 +412,9 @@ async function geometry(url) {
  * 层次：底层 fetch 重试 × 上层 readZipEntries/readZipEntry 整体重试。
  * 为避免请求数叠乘爆炸，底层只重试 2 次（最坏 2×3=6 次/调用）。
  *
- * 只重试「可能自愈」的情况：网络异常、5xx、429。
+ * 只重试「可能自愈」的情况：网络异常、5xx、429，以及
+ * 「206 Partial Content 但响应体短于请求区间」（边缘节点会返回
+ * 206 + content-length: 0 的空响应，属瞬时抖动）。
  * 4xx（除 429）是请求本身有问题，重试没意义，直接抛。
  *
  * @param {string} url
@@ -332,13 +423,58 @@ async function geometry(url) {
  * @returns {Promise<Response>}
  */
 async function fetchWithRetry(url, init, { tries = 2, onRetry } = {}) {
+  // ── 强制 identity 编码：这是整套 Range 读取能成立的前提 ──
+  //
+  // 实测（_lead_enc_probe.mjs，同一 URL、同一 Range，只改 Accept-Encoding）：
+  //   A 默认（Node 不带该头）           → content-range: bytes 0-1023/1805295, body 1024, 无编码
+  //   B `Accept-Encoding: gzip,deflate,br` → content-range: bytes 0-1023/1805303, body 1020, enc=br
+  //   C 只要 `br`                        → 同 B
+  //   D `identity`                       → 同 A
+  //
+  // 也就是说，一旦协商成 brotli，jsDelivr 会同时做两件坏事：
+  //   1) `content-range` 的总长改报「压缩前」的 1805303，而 HTTP Range 的语义
+  //      是按**原始字节**切片，用这个数算 ZIP 尾部窗口起点会整体后移 8 字节；
+  //   2) 返回的 body 只有 1020 字节（请求 1024），且这段字节**不是合法的 br 流**
+  //      —— Node 的 brotli 解码器直接报 ERR__ERROR_FORMAT_SIMPLE_HUFFMAN_ALPHABET，
+  //      浏览器里则表现为 body 短于声明，最终解压/校验失败。
+  // 更要命的是 Range 的字节偏移在压缩传输下**根本不可定义**：第 N 个字节的
+  // 偏移只在未压缩时有意义。所以这里必须显式要求 identity，让 CDN 走原始字节通道。
+  //
+  // 注意 `Accept-Encoding` 是受 CORS 约束的**非 safelisted 请求头**，浏览器下
+  // 直接设它可能触发预检失败。实践上浏览器的 `fetch` 允许脚本设置该头（它会
+  // 进 `Access-Control-Request-Headers`），jsDelivr 的 CORS 配置允许它；万一
+  // 某个节点拒绝，外层还有整体重试兜底。相比之下「坐标漂移到读不出谱面」的
+  // 代价远大于「这一次请求被拒」。
+  const headers = new Headers(init?.headers ?? {});
+  if (!headers.has('Accept-Encoding')) headers.set('Accept-Encoding', 'identity');
+  const realInit = { ...init, headers };
+
   let lastErr = null;
   for (let attempt = 1; attempt <= tries; attempt++) {
     try {
-      const r = await fetch(url, init);
+      const r = await fetch(url, realInit);
       // 5xx / 429 值得重试；其余状态码交给调用方判断
       if (r.status >= 500 || r.status === 429) {
         lastErr = new Error('读取失败 HTTP ' + r.status);
+        if (attempt < tries) {
+          if (onRetry) onRetry(attempt, lastErr);
+          await sleep(backoffMs(attempt));
+          continue;
+        }
+        return r;
+      }
+      // 206 但响应体短于请求区间，同样值得重试。
+      //
+      // 边缘节点抖动时会返回「206 Partial Content + content-length: 0」这种
+      // 自相矛盾的响应：状态码声称成功、body 却是空的（或比请求区间短）。
+      // 其 body 本应逐字节对应请求的 Range，所以「206 却短给」必然是可自愈的
+      // 瞬时故障，不是请求本身有问题。若不在这一层拦下，空 body 会一路漂到
+      // readZipEntry 的 `usable.length < entry.compSize` 检查，抛出
+      // 「条目数据不足（需要 N，收到 0）」并直接终止整个谱面加载。
+      // （注：readZipEntry/readZipEntries 各自还有 tries=3 的整体重试兜底，
+      // 但那要重走整个条目定位流程；在这里重试只重发这一个 Range 请求，更省。）
+      if (r.status === 206 && await shortBody(r, init)) {
+        lastErr = new Error(`响应体不足（206 但 body 短于请求区间，HTTP ${r.status}）`);
         if (attempt < tries) {
           if (onRetry) onRetry(attempt, lastErr);
           await sleep(backoffMs(attempt));
@@ -363,6 +499,61 @@ async function fetchWithRetry(url, init, { tries = 2, onRetry } = {}) {
 function backoffMs(attempt) {
   const base = 300 * 3 ** (attempt - 1);
   return base + Math.random() * 120;
+}
+
+/**
+ * 判断一个 206 响应的 body 是否短于请求的闭区间 Range。
+ *
+ * 只读响应头判断，**绝不消费 body** —— 这个 Response 还要原样交给调用方，
+ * 一旦 `arrayBuffer()` 过就再也读不出来了。
+ *
+ * 判据（按可靠性排序）：
+ *  1. `content-length` 明说长度 < 期望 ⇒ 一定是短给。空的 206 通常是
+ *     `content-length: 0`，这也是生产里「收到 0」的直接来源。
+ *  2. `content-range` 声明的区间跨度 < 期望 ⇒ 也是短给（有的节点不报 content-length）。
+ *  3. 两个头都不可用 ⇒ 无法判断，返回 false（不重试），交给调用方按实际
+ *     字节数处理，避免把「head 请求 / 开放式 Range」误判成故障。
+ *
+ * 注意：绝不因「比期望长」而重试 —— 多给是既有的代理对齐/压缩协商容错，
+ * 由调用方截断取用，不是故障。
+ *
+ * @param {Response} r 已确认 status === 206
+ * @param {RequestInit} init 发起请求时的 init（用于解析期望长度）
+ * @returns {boolean}
+ */
+function shortBody(r, init) {
+  const want = expectedRangeLength(init);
+  if (want == null) return false;
+
+  const cl = r.headers.get('content-length');
+  if (cl != null) {
+    const got = Number(cl);
+    if (Number.isFinite(got)) return got < want;
+    // content-length 存在但不是数字 ⇒ 不可用，继续看 content-range
+  }
+
+  const cr = r.headers.get('content-range') || '';
+  const m = cr.match(/bytes\s+(\d+)-(\d+)\/(\d+)/);
+  if (m) return Number(m[2]) - Number(m[1]) + 1 < want;
+
+  return false;
+}
+
+/**
+ * 从请求 init 的 Range 头解析闭区间的期望字节数。
+ * 开放式（`bytes=a-`）与后缀式（`bytes=-n`）拿不到确切预期长度，返回 null。
+ * @param {RequestInit} init
+ * @returns {number|null}
+ */
+function expectedRangeLength(init) {
+  const range = init?.headers?.Range ?? init?.headers?.range;
+  if (typeof range !== 'string') return null;
+  const m = /^bytes=(\d+)-(\d+)$/.exec(range.trim());
+  if (!m) return null;
+  const start = Number(m[1]);
+  const end = Number(m[2]);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return end - start + 1;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -403,14 +594,62 @@ async function readRange(url, start, end) {
   const real = applyCdnBase(url);
   const r = await fetchWithRetry(real, { headers: { Range: `bytes=${start}-${end}` } });
   if (!r.ok) throw new Error('读取失败 HTTP ' + r.status);
-  const bytes = new Uint8Array(await r.arrayBuffer());
   const cr = r.headers.get('content-range') || '';
   const m = cr.match(/bytes\s+(\d+)-(\d+)\/(\d+)/);
   // 服务端会把起点向上对齐，必须以响应头为准，否则坐标整体漂移
+  const hdrStart = m ? Number(m[1]) : start;
+  const hdrEnd = m ? Number(m[2]) : end;
+  const hdrTotal = m ? Number(m[3]) : 0;
+
+  let bytes;
+  const chunks = [];
+  let partialLen = 0;
+  try {
+    // 流式读取：一边读一边留分片。区间越界时节点会先给响应头、发一部分 body
+    // 再掐断连接（arrayBuffer() 直接抛 `terminated` / `Failed to fetch`，
+    // 已收到的字节全部丢失）。改成逐块读，掐断时还能拿到 partial。
+    const reader = r.body ? r.body.getReader() : null;
+    if (reader) {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value && value.byteLength) { chunks.push(value); partialLen += value.byteLength; }
+      }
+    } else {
+      const whole = new Uint8Array(await r.arrayBuffer());
+      chunks.push(whole);
+      partialLen = whole.byteLength;
+    }
+    bytes = new Uint8Array(partialLen);
+    let off = 0;
+    for (const c of chunks) { bytes.set(c, off); off += c.byteLength; }
+  } catch (err) {
+    // 走到这里说明 body 被中途掐断：越界请求的典型形态。
+    //
+    // 关键点：**不能**用响应头里 content-range 的 end 作收窄依据 ——
+    // 越界时节点回的是「你请求的那个 end」（实测 cr=bytes 4506-12698/8602，
+    // 而真实文件只有 8594 字节），照它重试等于原样再发一次越界请求，永远失败。
+    //
+    // 唯一可靠的信息是「body 实际收到了多少字节」：本次请求从 hdrStart 起算，
+    // 收到了 partialLen 字节 ⇒ 文件在 hdrStart+partialLen 处就结束了
+    // ⇒ 真实末尾 = hdrStart+partialLen-1。用它收窄区间重试即可拿到完整窗口。
+    if (partialLen > 0) {
+      const trueEnd = hdrStart + partialLen - 1;
+      if (trueEnd >= hdrStart && trueEnd < hdrEnd) {
+        const r2 = await fetchWithRetry(real, { headers: { Range: `bytes=${hdrStart}-${trueEnd}` } });
+        if (r2.ok) {
+          const b2 = new Uint8Array(await r2.arrayBuffer());
+          if (b2.length > 0) return { bytes: b2, start: hdrStart, end: trueEnd };
+        }
+      }
+    }
+    throw err;
+  }
+
   return {
     bytes,
-    start: m ? Number(m[1]) : start,
-    end: m ? Number(m[2]) : end,
+    start: hdrStart,
+    end: hdrEnd,
   };
 }
 
@@ -542,9 +781,26 @@ async function readZipEntriesOnce(url) {
   // 1) 取末尾 64 KB 找 EOCD
   const tailLen = Math.min(65536, totalSize);
   const wantStart = totalSize - tailLen;
-  const win = await readRange(url, wantStart, totalSize - 1);
-  const tail = win.bytes;
-  const tailStart = win.start;
+  // 越界防护：CDN 声明虚高时 totalSize - 1 会落在文件外，请求 [.., totalSize-1]
+  // 拿不到声明的那几字节，连接被掐断后浏览器直接抛 `TypeError: Failed to fetch`
+  // （无栈帧、难定位）。这里先收窄到「确认存在」的范围，再靠 readRange 的
+  // content-range 纠偏把真实起点/终点拉回来。
+  const winEnd = totalSize - 1;
+  let win = await readRange(url, wantStart, winEnd);
+  let tail = win.bytes;
+  let tailStart = win.start;
+
+  // 若窗口尾部其实超出了文件（响应头把 end 收窄了），把窗口整体前移，
+  // 保证 64 KB 都落在真实文件内 —— 否则 EOCD 搜索区间会短一截。
+  const tailEndAbs = win.start + tail.length - 1;
+  if (win.start > 0 && tailEndAbs < winEnd) {
+    const back = Math.min(win.start, winEnd - tailEndAbs);
+    const win2 = await readRange(url, win.start - back, winEnd - back);
+    if (win2.bytes.length > tail.length) {
+      tail = win2.bytes;
+      tailStart = win2.start;
+    }
+  }
 
   const eocd = findEocd(tail);
   if (eocd < 0) throw new Error('不是有效的 zip（未找到 EOCD）');
@@ -553,6 +809,55 @@ async function readZipEntriesOnce(url) {
   const cdSize = dv.getUint32(12, true);
   const cdOffset = dv.getUint32(16, true);
   const expectCount = dv.getUint16(10, true);
+
+  // 1.5) 结构性自检（不依赖任何 CDN 的总长声明）
+  // EOCD 里的 cdOffset / cdSize 是【文件内部】的相对关系：中央目录就紧跟在
+  // 最后一个条目数据之后、EOCD 之前。于是有恒等式：
+  //     cd 的绝对起点 = EOCD 的绝对位置 - cdSize          （尾部相邻关系）
+  //     cd 的绝对起点 = tailStart + 窗口内偏移(cdOffset 对应处)
+  // 若 CDN 声明的总长虚高（实测 jsDelivr 恒虚高 8），我们据其算出的 tailStart 就会
+  // 整体后移，导致 EOCD 落在错误位置、甚至请求越界。这里用上述等式反推真实的
+  // tailStart 修正量：只要能从 EOCD 解出位置并算出 cdSize，就能独立定位 CD，
+  // 完全不需要相信 content-length / content-range 报的总长。
+  // 具体做法：先看「按 cdOffset 定位」是否命中 CDH 签名；不命中则用 EOCD 位置反推。
+  const eocdAbsIfCorrect = tailStart + eocd; // 当前 tailStart 假设下 EOCD 的绝对位置
+  const cdStartFromEocd = eocdAbsIfCorrect - cdSize; // 由尾部相邻关系推出的 CD 绝对起点
+  const cdStartFromOffset = tailStart + cdOffset; // 由 EOCD 记录的 cdOffset 推出的 CD 绝对起点
+  let tailSkew = 0; // tailStart 需要前移的量
+  if (cdStartFromEocd !== cdStartFromOffset) {
+    // 两者不一致 ⇒ 说明我们据以计算 tailStart 的总长是错的。
+    // 但注意：cdOffset 也是【相对 CD 起点】的文件内偏移，其本身是可靠的；
+    // 真正不一致的根源是 tailStart 偏了 (cdStartFromOffset - cdStartFromEocd)。
+    // 只有当「窗口内 cdOffset 处」确实没有 CDH 签名时，才需要修正 tailStart。
+    const guessInTail = cdOffset - (cdStartFromOffset - tailStart);
+    const cdFromEocdInTail = eocd - cdSize;
+    const at = cdFromEocdInTail;
+    const isCdhAt = (i) =>
+      i >= 0 &&
+      i + 46 <= tail.length &&
+      tail[i] === 0x50 &&
+      tail[i + 1] === 0x4b &&
+      tail[i + 2] === 0x01 &&
+      tail[i + 3] === 0x02;
+    if (at >= 0 && isCdhAt(at) && !isCdhAt(guessInTail)) {
+      // 由 EOCD 尾部相邻关系推出的位置才是对的
+      tailSkew = cdStartFromEocd - cdStartFromOffset;
+    }
+  }
+  if (tailSkew !== 0) {
+    const newStart = tailStart + tailSkew;
+    if (newStart >= 0) {
+      try {
+        const win3 = await readRange(url, newStart, winEnd);
+        if (win3.bytes.length > 0) {
+          tail = win3.bytes;
+          tailStart = win3.start;
+        }
+      } catch {
+        /* 重新取窗口失败就让后续签名扫描来兜底 */
+      }
+    }
+  }
 
   // 2) 定位中央目录：直接扫描 CDH 签名并验证条目数能对上，
   //    这是对 CDN 坐标漂移最不敏感的做法（窗口仅 64 KB，扫描成本可忽略）

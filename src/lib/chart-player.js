@@ -31,6 +31,12 @@ const TAP_DURATION = 0.3; // tap 从出现到消失的总时长
 // 收缩缓动：ease-out cubic。前段收得快（命中感强），尾段轻轻落定，
 // 匀速会让中段显得拖沓 —— 同样的总时长，这样体感明显更利落。
 const easeOutCubic = (p) => 1 - (1 - p) ** 3;
+// 判定点后的淡出时长。与出现阶段分开算：出现用 --jp-anim 从四角合拢，
+// 淡出用 --jp-passed 原地变透明，两个变量各自单调，互不干扰。
+const TAP_PASSED_DURATION = 0.18;
+// 缓入缓出：三角头起步快、落点收敛，避免线性插值的机械感。
+// 放在模块作用域是因为带子层的几何生成（bandMarkup）也要用它。
+const easeInOut = (p) => (p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2);
 const HOLD_CLOSE = 0.08; // 长押终点后收合
 // —— 长押：起点长按 + 三角头沿路径前进 + 连接线随之前进缩短 ——
 // 前进占比按拍长自适应：0.5 拍也得动得出，12 拍也不能整段都在动。
@@ -69,6 +75,116 @@ function dirOf(h) {
 }
 
 const PAD_KEYS = 16;
+
+// —— 长押带子层（.jp-band SVG）的几何常量 ——
+// 单位统一是「格宽的比例」，与面板实际像素无关：三角头 0.22 格长、
+// 连接线半宽 0.018 格，这样面板放大缩小时形状比例不变，不用重算常量。
+// 设计原则是「克制」—— 面板只有 4×4，元素一胖就把音符本身盖住了。
+//
+// 三角头长度为什么是 0.22 格：格心距在常见桌面宽度下约 81px（320px 面板
+// → 格宽 75.5px），0.22 格 ≈ 16.6px，约占单格心距 20%。这是「一个小箭头」。
+// 它必须是**固定格长、不随带子长度缩放**：否则跨 3 格的长押会长成一个
+// 巨大的三角形把整条带子吞掉（早期写成 1.6 格 ≈ 121px，比一个格心距还长，
+// 被 f.len * 0.8 的 min() 一夹就退化成「头尾相接的粗棍子」）。
+const BAND_LINE_W = 0.018; // 连接线半宽（格）
+const BAND_HEAD_LEN = 0.22; // 三角头长度（格）
+const BAND_HEAD_W = 0.15; // 三角头底边半宽（格）
+
+/**
+ * 从「格心两点」算出一条带子的局部坐标系。
+ * u = 前进方向单位向量，v = 其法向（左手系，用于把线/头铺开成有宽度的多边形）；
+ * len = 两点距离。所有后续几何都在这个坐标系里算，避免每处重复开方。
+ */
+function bandFrame(a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return { ux: dx / len, uy: dy / len, vx: -dy / len, vy: dx / len, len };
+}
+
+/** 带子坐标系里「沿轴 t、偏离轴法向 s」的点换算回面板像素 */
+function bandPoint(a, f, t, s) {
+  return { x: a.x + f.ux * t + f.vx * s, y: a.y + f.uy * t + f.vy * s };
+}
+
+/** 取整到 0.1px：SVG 字符串会作为 innerHTML 的 diff key，抖动能避免无效重写 */
+function svgPoint(p) {
+  return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+}
+
+/**
+ * 读 16 个格子的实际中心（面板像素坐标），供 .jp-band 这层 SVG 使用。
+ *
+ * 为什么用 getBoundingClientRect 反算而不是按公式除：格子尺寸由 CSS grid +
+ * aspect-ratio 决定，还受 gap(6px)、padding(8px)、窄屏断点影响，
+ * 用公式算必然在某个断点上错位。直接量真实几何则天然跟随布局。
+ *
+ * 关键：坐标必须是 **SVG 自己的坐标系**。SVG 有 position:absolute; inset:0，
+ * 所以 SVG 的 (0,0) 是 .jp-pad 的 padding box 左上角；而格心是相对 viewport
+ * 量的。两者相减才能抵消面板在页面里的位置，且不把 padding 算进去。
+ */
+function measurePad(pad) {
+  const padRect = pad.getBoundingClientRect();
+  const els = [...pad.querySelectorAll('.jp-key')];
+  return els.map((el) => {
+    const r = el.getBoundingClientRect();
+    return {
+      // 相对 SVG 原点（= pad 的 padding box 左上角）的格心
+      x: r.left + r.width / 2 - padRect.left - pad.clientLeft,
+      y: r.top + r.height / 2 - padRect.top - pad.clientTop,
+      w: r.width,
+    };
+  });
+}
+
+/**
+ * 生成整条带子层的 SVG 内容（连接线 + 三角头）。
+ *
+ * 几何约定（为什么这么画）：
+ *   - 三角头尖端朝着 **起点** 方向指（即 -u 方向），底边两点在前进处 ——
+ *     视觉上像一支「往回指」的箭头，与起点格上的三角缺口形状呼应。
+ *   - 连接线画两段：起点到 tip 之前一段、base 之后一段，中间被三角头占住，
+ *     所以线不会从三角头底下透出来。
+ *   - 线宽/头宽都按格宽比例，格子小的时候自动变细，不会糊成一团。
+ *
+ * @param {Array<{x:number,y:number,w:number}>} pts 16 个格心（面板像素）
+ * @param {Array<{h:object, phase:number}>} bands 当前活动的长押
+ * @returns {string} SVG 内部标记；无带子时返回空串
+ */
+function bandMarkup(pts, bands) {
+  const out = [];
+  for (const { h, phase } of bands) {
+    const p0 = pts[h.key - 1];
+    const p1 = pts[h.endKey - 1];
+    if (!p0 || !p1) continue;
+    const f = bandFrame(p0, p1);
+    if (f.len < 0.5) continue; // 同键长押没有位移，只需起点格高亮，不画带子
+    const cell = (p0.w + p1.w) / 2 || 1;
+    const headLen = Math.min(BAND_HEAD_LEN * cell, f.len * 0.8);
+    const headHalf = BAND_HEAD_W * cell;
+    const lineHalf = BAND_LINE_W * cell;
+    // 三角头只在「可走行程」内前进，到终点时尖端正好压在终点格心
+    const travel = Math.max(0, f.len - headLen);
+    const tipT = easeInOut(phase) * travel;
+    const baseT = tipT + headLen;
+    const tip = bandPoint(p0, f, tipT, 0);
+    const baseL = bandPoint(p0, f, baseT, headHalf);
+    const baseR = bandPoint(p0, f, baseT, -headHalf);
+    out.push(`<polygon class="jp-band-head" points="${svgPoint(tip)} ${svgPoint(baseL)} ${svgPoint(baseR)}"/>`);
+    // 两段线（头之前 / 头之后）；用四边形而不是 line，好让线宽随格宽走
+    const seg = (t0, t1) => {
+      if (t1 - t0 < 0.5) return;
+      const a = bandPoint(p0, f, t0, lineHalf);
+      const b = bandPoint(p0, f, t1, lineHalf);
+      const c = bandPoint(p0, f, t1, -lineHalf);
+      const d = bandPoint(p0, f, t0, -lineHalf);
+      out.push(`<polygon class="jp-band-line" points="${svgPoint(a)} ${svgPoint(b)} ${svgPoint(c)} ${svgPoint(d)}"/>`);
+    };
+    seg(0, tipT);
+    seg(baseT, f.len);
+  }
+  return out.length ? out.join('') : '';
+}
 
 /** 当前正在出声的预览器。全局唯一，保证「不能同时播放」。 */
 let activePlayer = null;
@@ -193,7 +309,17 @@ export function mountChart(root, chart) {
   const waveCanvas = root.querySelector('.jp-wave');
   if (!pad) return null;
 
-  if (!pad.childElementCount) pad.innerHTML = padMarkup();
+  // 带子层 SVG 必须在重建格子**之前**取出来：
+  // pad.innerHTML = padMarkup() 会连它一起冲掉。模板里已有这个空占位
+  // （见 ChartPreview.astro），它是 .jp-pad 的第一个子元素，
+  // 由 CSS 的 grid-area: 1 / 1 / -1 / -1 覆盖整个面板。
+  // 这里只负责往里灌内容，不负责创建节点；没有这层就直接跳过，
+  // 长押退化成「只有起点格高亮」，不会报错。
+  const bandSvg = pad.querySelector('.jp-band');
+  if (!pad.querySelector('.jp-key')) {
+    // 只补格子，保留原有子元素顺序（SVG 仍在最前，才能钉住整个网格）
+    pad.insertAdjacentHTML('beforeend', padMarkup());
+  }
   const keyEls = [...pad.querySelectorAll('.jp-key')];
 
   // —— 音符编号与双押分组 ——
@@ -282,9 +408,6 @@ export function mountChart(root, chart) {
     return { phase: p, closing: 0 };
   };
 
-  /** 根号缓动：三角头起步快、落点收敛，避免线性插值的机械感 */
-  const easeInOut = (p) => (p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2);
-
   /** 三角头当前所在格号（1..16） */
   const headKeyAt = (h, phase) => {
     if (h.key === h.endKey) return h.key;
@@ -343,9 +466,19 @@ export function mountChart(root, chart) {
     // 普通 tap
     for (const x of taps) {
       if (x.key !== key) continue;
+      // 判定点之后进入「就地淡出」阶段：这段用 --jp-passed 驱动，
+      // 与出现阶段的 --jp-anim 分开，这样「闭合到满格」和「淡出」是两段独立的节奏。
+      const passed = t - x.t - TAP_DURATION;
       if (t < x.t) continue;
-      if (t >= x.t + TAP_DURATION) continue;
-      return { mode: 'tap', phase: (t - x.t) / TAP_DURATION, simul: x.simul, seq: x.seq };
+      if (passed >= TAP_PASSED_DURATION) continue;
+      return {
+        mode: 'tap',
+        phase: (t - x.t) / TAP_DURATION,
+        phasePassed: passed >= 0,
+        fade: passed <= 0 ? 0 : passed / TAP_PASSED_DURATION,
+        simul: x.simul,
+        seq: x.seq,
+      };
     }
     return { mode: 'idle', phase: 0 };
   };
@@ -359,7 +492,52 @@ export function mountChart(root, chart) {
   // 每帧重设前要清掉的「状态类」。类名必须与 ChartPreview.astro 里真正有样式的
   // 选择器一一对应：多留一个不存在的类（比如旧版的 is-hold-head / is-hold-trail）
   // 不会报错，只会静默不生效 —— 长押看上去就只剩起点高亮，方向缺口永远是默认朝右。
-  const STATE_CLASSES = ['is-tap', 'is-hold-head', 'is-hold-end', 'is-hold-root', 'is-closing', 'is-simul'];
+  //
+  // is-tap-passed 必须在这里：它只在「判定点之后 0.18s」这一个窗口内被 add（见下方
+  // render 的 tap 分支），但 tap 窗口结束后该格子走 else 分支，那里只 removeProperty，
+  // 不会摘 class。漏掉它的话，判过一次的格子会永远留着实色背景与发光描边
+  //（.jp-key.is-tap.is-tap-passed 那条规则），下一次同一格出现音符就直接是「已判定」
+  // 的实色外观，动画看起来像坏掉。
+  const STATE_CLASSES = ['is-tap', 'is-tap-passed', 'is-hold-head', 'is-hold-end', 'is-hold-root', 'is-closing', 'is-simul'];
+
+  /**
+   * 把「当前所有活动长押」渲染成 SVG 带子。
+   *
+   * 为什么每帧重算而不是增量维护：长押在任意时刻可能多条并行
+   * （如 Insanity: Luna EXT 1.22s 处 6 条同时推进），每条的头位置都在变，
+   * 增量维护要处理新增/消失/头位移三套 diff，反而更容易漏。整帧重算 + 字符串
+   * 比对，只有内容真变了才写 DOM（__ink 缓存上次内容），实测开销可忽略。
+   *
+   * 颜色：CSS 里写的是 var(--jp-hit) / var(--jp-hit-deep)，但这两个变量
+   * 原本只定义在文档根上，SVG 里用 color-mix() 会解析失败回落成黑色，
+   * 所以这里从 documentElement 读出实色后用内联 fill/stroke 直接落到 polygon 上。
+   */
+  function syncBands(t) {
+    if (!bandSvg) return;
+    const bands = [];
+    for (const h of holds) {
+      if (t < h.t) continue;
+      if (t >= h.endT + HOLD_CLOSE) continue;
+      const st = holdAt(h, t);
+      if (!st) continue;
+      bands.push({ h, phase: st.phase });
+    }
+    const markup = bands.length ? bandMarkup(measurePad(pad), bands) : '';
+    // 只有内容变化才写 innerHTML：每帧无条件重写会让 SVG 反复重建，
+    // 在 60fps 下是白白烧 CPU。
+    if (bandSvg.__ink !== markup) {
+      bandSvg.innerHTML = markup;
+      bandSvg.__ink = markup;
+      // 颜色变量随内容一起落，避免在同一帧里读两次 computed style
+      if (markup) {
+        const cs = getComputedStyle(document.documentElement);
+        const hit = cs.getPropertyValue('--w-hit').trim() || '#38c6e6';
+        const deep = cs.getPropertyValue('--w-hit-deep').trim() || '#1490b4';
+        pad.style.setProperty('--jp-hit', hit);
+        pad.style.setProperty('--jp-hit-deep', deep);
+      }
+    }
+  }
 
   function render(t) {
     for (let i = 0; i < keyEls.length; i++) {
@@ -379,7 +557,15 @@ export function mountChart(root, chart) {
       if (st.mode === 'tap') {
         // 单向收缩 + ease-out：整段单调 0 -> 1，收缩到中心即消失，不做反向散开。
         el.classList.add('is-tap');
-        el.style.setProperty('--jp-anim', String(easeOutCubic(st.phase)));
+        el.style.setProperty('--jp-anim', String(easeOutCubic(Math.min(1, st.phase))));
+        // 判定点之后：整格转为实色并就地淡出。--jp-passed 从 0 单调到 1，
+        // CSS 用它做 opacity 与收缩的收边（.jp-key.is-tap.is-tap-passed）。
+        if (st.phasePassed) {
+          el.classList.add('is-tap-passed');
+          el.style.setProperty('--jp-passed', String(st.fade));
+        } else {
+          el.style.removeProperty('--jp-passed');
+        }
         if (st.seq) el.dataset.jpSeq = String(st.seq);
       } else if (st.mode === 'hold-head') {
         // 三角头所在格。rooted = 头还压在起点格上（此时起点格同时也是头）。
@@ -405,9 +591,13 @@ export function mountChart(root, chart) {
       } else {
         el.style.setProperty('--jp-anim', '0');
         el.style.setProperty('--jp-hold', '0');
+        el.style.removeProperty('--jp-passed');
         delete el.dataset.jpSeq;
       }
     }
+    // 带子层：整帧一次性重算，而不是逐格各写一段 ——
+    // 长押是一根跨格不断的连续结构，逐格画必然在 6px 间隙里断开。
+    syncBands(t);
   }
 
   /** 每帧：时间轴来自音频采样级时钟，谱面严格跟着它走 */
@@ -527,31 +717,44 @@ export async function loadAndMount(root) {
   root.__loading = true;
   root.dataset.state = 'loading';
 
+  // 本次加载的身份。难度切换与快速连点会让多次加载重叠，只有 identity
+  // 仍然最新的那次才允许写 DOM —— 否则慢返回的旧响应会覆盖新难度。
+  const identity = (root.__loadToken = (root.__loadToken ?? 0) + 1);
+  const isStale = () => root.__loadToken !== identity;
+
   const status = root.querySelector('.jp-status');
   const gate = root.querySelector('.jp-gate');
   const gateBtn = gate?.querySelector('button');
   const setStatus = (text) => {
-    if (status) status.textContent = text;
+    if (status && !isStale()) status.textContent = text;
   };
 
   try {
     const url = await resolveMczUrl(root);
+    if (isStale()) return null;
     if (!url) {
       root.dataset.state = 'missing';
+      root.__missing = true;
       setStatus('仓库里没有找到这首曲目的铺面');
       if (gateBtn) gateBtn.disabled = true;
       return null;
     }
+    // 曾经因兜底匹配失败被标过 missing，这次拿到地址了就撤掉标记，
+    // 否则 mountAll 的 IntersectionObserver 分支会一直跳过这个容器。
+    root.__missing = false;
 
     const diff = normDiff(root.dataset.diff) ?? 'EXT';
     setStatus('正在从 CDN 读取谱面…');
 
     // 1) 只取三难度 .mc（Range，约 9 KB）
+    root.__phase = 'fetchChartSet';
     const { charts } = await fetchChartSet(url, { bpm: Number(root.dataset.bpm) || null });
+    if (isStale()) return null;
     const picked = charts[diff] ?? charts[Object.keys(charts)[0]];
     if (!picked) throw new Error('该谱包里没有 ' + diff + ' 难度');
 
     setStatus('正在解析音频（波形 / BPM）…');
+    root.__phase = 'fetchAssets';
 
     // 2) 音频 + 曲绘。音频要拿到原始字节用来 decode，不只是给 <audio> 的 blob URL。
     let audioBuffer = null;
@@ -593,6 +796,9 @@ export async function loadAndMount(root) {
 
     // 统计文字。注意：.jp-audio 是 .jp-meta 的子元素，不能整段重写 innerHTML，
     // 否则会把 .jp-audio 从 DOM 里抹掉，导致后面的音频信息无处可写。
+    // 到这里已经跨过音频解析的 await，必须再确认一次身份：难度被切走时
+    // 这些回写会盖掉新难度已经渲染好的面板。
+    if (isStale()) return null;
     const stats = root.querySelector('.jp-meta');
     if (stats) {
       // 清掉构建期的占位符（「谱面数据将在加载后显示」），此时已经有真实数据了
@@ -626,22 +832,38 @@ export async function loadAndMount(root) {
       audioLine.title = audioUrl ?? '';
     }
 
+    if (isStale()) return null;
     setStatus('');
     if (gate) gate.hidden = true;
     const controls = root.querySelector('.jp-controls');
     if (controls) controls.hidden = false;
 
     const mounted = mountChart(root, { ...picked, audioBuffer, peaks, tempo });
+    if (isStale()) return null;
     root.__tempo = tempo;
     root.__audioInfo = audioInfo;
     return mounted;
   } catch (err) {
+    if (isStale()) return null;
     root.dataset.state = 'error';
     setStatus('谱面加载失败：' + (err?.message ?? err));
     console.error('[jp] load failed', err);
+    // 诊断留痕：把异常全貌（含 name/cause/stack 首帧）挂到 root 上，便于 CDP 抓取。
+    // 只挂数据、不改流程；验收完可以删掉。
+    try {
+      root.__error = {
+        name: err?.name ?? typeof err,
+        message: String(err?.message ?? err),
+        cause: err?.cause ? `${err.cause.name}: ${err.cause.message}` : null,
+        stack: String(err?.stack ?? '').split('\n').slice(0, 8).join(' | '),
+        phase: root.__phase ?? null,
+      };
+    } catch { /* 诊断失败不影响主流程 */ }
     return null;
   } finally {
-    root.__loading = false;
+    // 只有最新的那次加载才有资格复位 __loading：旧加载提前退出时把标志清了，
+    // 会让正在跑的新加载被后续调用当成「空闲」而重复进入。
+    if (!isStale()) root.__loading = false;
   }
 }
 
@@ -651,6 +873,10 @@ export async function loadAndMount(root) {
  * 注意选择器不要求 data-mcz：没内联地址的也要接管，交给前端兜底匹配。
  */
 export async function mountAll() {
+  // 难度切换的两个入口（左侧 .jp-rail 与页面表格里的「▶ 预览」锚点）都用
+  // document 级委托接线：它们在 .jp 容器重挂前后始终存在，委托只需挂一次。
+  wireDiffSwitch();
+
   const roots = [...document.querySelectorAll('.jp')];
   for (const root of roots) {
     if (root.__chart || root.__wired) continue;
@@ -662,6 +888,9 @@ export async function mountAll() {
     if (gateBtn) {
       gateBtn.addEventListener('click', () => loadAndMount(root));
     }
+    // 首次接线时按 data-diff 同步一次 aria-selected / tabindex，
+    // 免得服务端渲染的默认难度与实际状态不一致。
+    syncDiffUi(root);
 
     // 滚入视口后自动加载（若无手动按钮则直接自动）
     if ('IntersectionObserver' in window) {
@@ -691,3 +920,178 @@ export function releaseChart(root) {
   root.__audioUrl = null;
   root.__coverUrl = null;
 }
+
+// —— 难度切换 ——
+//
+// 页面侧（ChartPreview.astro）静态渲染了三个难度按钮（.jp-diff，data-jp-diff），
+// 详情页表格里的「▶ 预览」锚点带 data-jp-jump。两者都必须能切到目标难度，
+// 且共用下面这一段逻辑 —— 不写第二份。
+//
+// 为什么切换「只补 .mc」而不重下音频：loadAudioBytes（chart-source.js:145）的
+// 缓存键就是 .mcz 的 CDN 地址，切难度时该地址与曲目 bpm 都不变，
+// 所以 fetchAssets 必然命中缓存，只补下≈9KB 的 .mc。切换路径不要另建缓存，
+// 也不要绕过 fetchAssets 自己取音频。
+
+/** 把一个已经挂载的预览器摘干净，让 loadAndMount 可以重新接管 */
+function unmountChart(root) {
+  releaseChart(root);
+  // loadAndMount 的入口护栏是 `if (root.__chart || root.__loading) return`，
+  // releaseChart 并不清 __chart —— 不手动清掉的话重挂会被护栏挡回去，什么都不发生。
+  root.__chart = null;
+  root.__player = null;
+  root.__tempo = null;
+  root.__audioInfo = null;
+  delete root.dataset.levelTag;
+  root.classList.remove('has-cover');
+  root.style.removeProperty('--jp-cover');
+}
+
+/** 难度切换后同步左侧难度栏的可访问性状态（aria-selected + roving tabindex） */
+function syncDiffUi(root, diff) {
+  const target = normDiff(diff ?? root.dataset.diff);
+  const tabs = [...root.querySelectorAll('.jp-rail [role="tab"]')];
+  if (!tabs.length) return;
+  let activeTab = null;
+  for (const tab of tabs) {
+    const on = normDiff(tab.dataset.jpDiff) === target;
+    tab.setAttribute('aria-selected', on ? 'true' : 'false');
+    // roving tabindex：整栏只留一个可 Tab 聚焦的停靠点，栏内用方向键移动。
+    tab.tabIndex = on ? 0 : -1;
+    if (on) activeTab = tab;
+  }
+  // 目标难度在栏里找不到按钮时（例如页面只给了部分难度），
+  // 至少保证有且仅有一个停靠点，否则整栏会从键盘导航里消失。
+  if (!activeTab) {
+    tabs[0].tabIndex = 0;
+    activeTab = tabs[0];
+  }
+
+  // 等级后缀：预览器的统计文字（loadAndMount 里读 root.dataset.levelTag）
+  // 需要「当前难度的 Lv」。等级数据只存在于 rail 按钮自己的子树里
+  // （ChartPreview.astro 的 <span class="jp-diff-lv">Lv 5</span>），
+  // 这里从选中按钮上取回并落到 dataset —— 难度切换与首次挂载都会经过这里，
+  // 所以写入端只此一处，不必改 ChartPreview.astro。
+  const lv = activeTab?.querySelector('.jp-diff-lv')?.textContent?.trim();
+  if (lv && lv !== '—') root.dataset.levelTag = ` · ${lv}`;
+  else delete root.dataset.levelTag;
+
+  // 头部标签（.jp-label）在服务端是按默认难度渲染死的，切换后必须跟着改，
+  // 否则会出现「头写 EXTREME、面板画 BSC」的自相矛盾。名字与等级同样取自
+  // rail 按钮，缺失时保留原文本而不是写空。
+  const label = root.querySelector('.jp-label');
+  if (label) {
+    const name = activeTab?.querySelector('.jp-diff-name')?.textContent?.trim();
+    const lvNum = lv && lv !== '—' ? lv.replace(/^Lv\s*/i, '') : '';
+    if (name) label.textContent = lvNum ? `${name} ${lvNum}` : name;
+  }
+}
+
+/** 按 roving tabindex 约定把焦点移到另一个难度按钮上 */
+function focusDiffTab(tabs, index) {
+  const next = tabs[(index + tabs.length) % tabs.length];
+  if (!next) return;
+  // 先把整栏清成 -1，再给目标置 0：必须两趟走完。
+  // 写成一趟 tab === next ? 0 : tab.tabIndex 是错的 —— 非目标项只是把原值
+  // 赋回自己，上一轮的 tabIndex=0 会留在那儿，整栏就会出现两个停靠点。
+  for (const tab of tabs) tab.tabIndex = -1;
+  next.tabIndex = 0;
+  next.focus();
+}
+
+/**
+ * 切换某个预览器的谱面难度。
+ *
+ * 幂等：目标难度与当前一致时直接返回，不重启播放（重复点击同一难度是常见误操作）。
+ * 并发安全：每次切换都换一个 token，只有最新一次切换才允许继续走后续的重挂与回写；
+ * 被取代的旧切换在 await 回来后自己退出，不会覆盖新难度的 DOM。
+ *
+ * @param {HTMLElement} root .jp 容器
+ * @param {string} diff 目标难度（bsc/adv/ext，大小写不敏感）
+ * @returns {Promise<unknown>}
+ */
+export async function switchDiff(root, diff) {
+  if (!root) return null;
+  const target = normDiff(diff);
+  if (!target) return null;
+
+  const current = normDiff(root.dataset.diff);
+  // 幂等：已经是这个难度就什么都不做。注意这里必须早退于任何 abort / 重挂，
+  // 否则重复点击会把正在播放的音频掐掉重启。
+  if (current === target && root.__chart) {
+    syncDiffUi(root, target);
+    return root.__chart;
+  }
+
+  const token = (root.__switchToken = (root.__switchToken ?? 0) + 1);
+  // 写小写：服务端（ChartPreview.astro 的 data-diff）渲染的就是 active.diff 的小写形态，
+  // 这里跟着写小写才能让 DOM 只有一种约定；normDiff 在读侧做归一化，两边都不吃亏。
+  root.dataset.diff = target.toLowerCase();
+
+  // 在飞的谱面/音频请求必须作废：作废旧 token 的所有回写。
+  // fetchWithRetry（mcz-reader.js）目前不接受 signal，所以这里用「逻辑取消」——
+  // 旧切换在每次 await 回来时检查 token，发现已被取代就不再碰 DOM（见 loadAndMount
+  // 的 isStale 与下面的返回值检查）。旧请求本身会自然结束（Range 只有几 KB），
+  // 其结果被丢弃，绝不会覆盖新难度。
+  unmountChart(root);
+  // 旧加载的 finally 因为 isStale 不会复位 __loading；这里强制放开，
+  // 否则新的 loadAndMount 会被入口护栏挡回去，点了没反应。
+  root.__loading = false;
+
+  // 同步难度栏必须放在 unmountChart 之后：unmountChart 里会 delete
+  // root.dataset.levelTag，先写就会被它删掉，切完难度统计文字就丢了 Lv 后缀。
+  syncDiffUi(root, target);
+
+  const mounted = await loadAndMount(root);
+  if (root.__switchToken !== token) return null; // 已被更新的切换取代，放弃回写
+  return mounted;
+}
+
+let diffSwitchWired = false;
+
+/** 给 .jp-rail 与 data-jp-jump 锚点接委托（document 级，只挂一次） */
+function wireDiffSwitch() {
+  if (diffSwitchWired || typeof document === 'undefined') return;
+  diffSwitchWired = true;
+
+  const rootOf = (el) => el?.closest?.('.jp') ?? null;
+
+  document.addEventListener('click', (e) => {
+    // 入口一：左侧难度栏的按钮
+    const tab = e.target?.closest?.('.jp-rail [role="tab"]');
+    if (tab) {
+      const root = rootOf(tab);
+      if (root) switchDiff(root, tab.dataset.jpDiff);
+      return;
+    }
+    // 入口二：详情页表格里的「▶ 预览」锚点。href 指向 #preview-ext，
+    // 浏览器负责滚动/定位，这里只负责把难度切过去 —— 与上面共用 switchDiff。
+    const jump = e.target?.closest?.('[data-jp-jump]');
+    if (jump) {
+      const root = rootOf(jump) ?? document.querySelector('.jp');
+      if (root) switchDiff(root, jump.dataset.jpJump);
+    }
+  });
+
+  // 键盘：tablist 的方向键移动 + Home/End，Enter/Space 由 click 事件天然覆盖。
+  document.addEventListener('keydown', (e) => {
+    const tab = e.target?.closest?.('.jp-rail [role="tab"]');
+    if (!tab) return;
+    const tabs = [...(tab.closest('.jp-rail')?.querySelectorAll('[role="tab"]') ?? [])];
+    const i = tabs.indexOf(tab);
+    if (i < 0) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      focusDiffTab(tabs, i + 1);
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      focusDiffTab(tabs, i - 1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      focusDiffTab(tabs, 0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      focusDiffTab(tabs, tabs.length - 1);
+    }
+  });
+}
+

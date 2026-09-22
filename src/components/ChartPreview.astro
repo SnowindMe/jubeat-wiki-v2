@@ -96,6 +96,7 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
     <div class="jp-stage">
       <div class="jp-pad" role="img" aria-label={`${labelOf(active)} 谱面 4x4 预览`}>
+        <svg class="jp-band" aria-hidden="true"></svg>
       </div>
 
       <div class="jp-gate">
@@ -218,20 +219,16 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
   box-sizing: border-box;
 }
 
-/* ---- 长押带子层：待实现 ----
-   设计意图（为什么当初要留这一层）：长押在视觉上必须是一根跨格不断的连续结构，
-   但 .jp-key 有 overflow:hidden、格与格之间还有 6px 间隙，靠「每个格子各画一段」
-   必然在缝里断裂。所以原本的计划是一层覆盖整个面板的 SVG 来画「连接线 + 三角头」，
-   不设 viewBox、坐标直接用面板像素（按 getBoundingClientRect 反算格心），
-   这样 stroke 宽度不会被非等比拉伸扭曲；并且必须 grid-area: 1 / 1 / -1 / -1 钉住
-   整个网格区域 —— .jp-pad 是 4×4 grid，SVG 作为第一个子元素若不钉住就会自己占掉
-   第一格，把后面 16 个 .jp-key 整体挤错位一格。
+/* ---- 长押带子层 ----
+   长押必须是一根跨格不断的连续结构，但 .jp-key 有 overflow:hidden、
+   格与格之间还有 6px 间隙，靠每个格子各画一段必然断裂。
+   所以用一层覆盖整个面板的 SVG 来画「连接线 + 三角头」：
+   不设 viewBox，坐标直接用面板像素（JS 按 getBoundingClientRect 反算格心），
+   这样 stroke 宽度不被非等比拉伸扭曲。
 
-   现状：**这一层当前没有生成方**（chart-player.js 里没有 createElementNS，
-   也不写任何 jp-band 节点），所以下面这条规则与 .jp-pad 里的空 SVG 占位一起
-   保持"零命中"状态。留着它是因为它是已定稿的渲染契约（三角头尖端朝起点、
-   连接线比三角头淡、颜色走 --jp-hit / --jp-hit-deep 而非 color-mix），
-   删掉就得把这份「为什么」重新推一遍。等 JS 侧补上带子层生成后即生效。 */
+   **必须 grid-area: 1 / 1 / -1 / -1** —— .jp-pad 是 4×4 的 grid，
+   SVG 是它第一个子元素，不钉住网格区域的话会自己占掉第一个格子，
+   把后面 16 个 .jp-key 整体挤错位一格。 */
 .jp-band {
   position: absolute;
   inset: 0;
@@ -244,17 +241,23 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 }
 /* 长押元素用实色画：color-mix(in oklab, var(--w-hit) …) 在 SVG 里会失败回落成黑色，
    所以颜色由 chart-player.js 从 tokens 读出的 --jp-hit / --jp-hit-deep 直接给。 */
-.jp-band polygon {
+/* 下面三条必须 :global()：它们匹配的 <polygon> 是 chart-player.js 用
+   bandSvg.innerHTML = 注入的，节点上永远不会有 data-astro-cid-*，
+   scoped 写法（.jp-band[data-astro-cid-x] polygon…）在真机上是死规则，
+   带子会落到 SVG 默认的黑填充上。
+   注意只需要包「选择器串」这一层，别把 .jp-band 自己那条也包进去——
+   那条选择的是模板里静态写的 <svg class="jp-band">，本来就生效。 */
+:global(.jp-band) polygon {
   stroke-linejoin: round;
 }
 /* 连接线：细，且比三角头淡，避免抢视觉 */
-.jp-band .jp-band-line {
+:global(.jp-band) .jp-band-line {
   fill: var(--jp-hit, #38c6e6);
   stroke: none;
   opacity: 0.4;
 }
 /* 三角头：尖端朝起点（往回指），底边朝前进方向 */
-.jp-band .jp-band-head {
+:global(.jp-band) .jp-band-head {
   fill: var(--jp-hit, #38c6e6);
   stroke: var(--jp-hit-deep, #1490b4);
   stroke-width: 1;
@@ -263,7 +266,7 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 /* 有曲绘时：面板半透明压在曲绘上 */
 .jp.has-cover .jp-pad { background: color-mix(in oklab, var(--w-panel-2) 72%, transparent); }
 
-.jp-key {
+:global(.jp-key) {
   position: relative;
   display: block;
   border-radius: var(--w-r-xs);
@@ -277,7 +280,7 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 /* ---- 数字提示：格内右下角显示该音符的全谱序号 ----
    只在音符处于活动状态时出现（由 render 写入 data-jp-seq），
    空格子不放数字，避免整块面板变成数字表。 */
-.jp-key[data-jp-seq]::after {
+:global(.jp-key[data-jp-seq]::after) {
   content: attr(data-jp-seq);
   position: absolute;
   right: 3px;
@@ -296,17 +299,17 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 /* ---- 双押提示：同一时刻要同时按的格子用同一个色相高亮 ----
    --jp-simul 是该组的色相角（黄金角跳色，相邻组差异明显）。
    单押不带这个变量，所以不会被染色。 */
-.jp-key.is-simul.is-tap::before {
+:global(.jp-key.is-simul.is-tap::before) {
   border-color: hsl(var(--jp-simul) 92% 62%);
   background: color-mix(in oklab, hsl(var(--jp-simul) 92% 62%) 30%, transparent);
   box-shadow: 0 0 8px hsl(var(--jp-simul) 92% 62% / 0.55);
 }
-.jp-key.is-simul.is-tap {
+:global(.jp-key.is-simul.is-tap) {
   border-color: hsl(var(--jp-simul) 92% 62%);
 }
 /* 长押也参与同时押时，起点/终点同样染色 */
-.jp-key.is-simul.is-hold-root,
-.jp-key.is-simul.is-hold-end {
+:global(.jp-key.is-simul.is-hold-root),
+:global(.jp-key.is-simul.is-hold-end) {
   border-color: hsl(var(--jp-simul) 92% 62%);
   box-shadow: 0 0 0 2px hsl(var(--jp-simul) 92% 62% / 0.5), 0 0 14px var(--w-hit-wash);
 }
@@ -314,11 +317,9 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 /* ---- tap：判定点前「从四个角向中心闭合」，闭合的那一刻就是判定点 ----
    --jp-anim: 0(四个角刚出现) .. 1(四角合拢填满整格 = 判定点)，单向不回头；
    颜色从白 -> 谱面主色，让「即将判定」和「已判定」在颜色上也能区分。
-   注：判定之后就地的淡出阶段（原设计用 .is-tap-passed 接管、--jp-passed: 0..1）
-   当前没有实现方 —— chart-player.js 既不写 --jp-passed 也不加 is-tap-passed，
-   并且它每帧会把状态类整体重置，所以那两条规则已删除；节奏记在下面这段注释里，
-   等 JS 侧补上淡出阶段时按此约定接：实色块原地缩小透明度，不外扩、不散开。 */
-.jp-key.is-tap {
+   判定之后由 .is-tap-passed 接管，--jp-passed: 0 .. 1 就地淡出
+   （--jp-passed 由 chart-player.js 在 tap 判定期写入）。 */
+:global(.jp-key.is-tap) {
   background: color-mix(in oklab, var(--w-hit) calc(var(--jp-anim) * 55%), var(--w-panel));
   border-color: color-mix(in oklab, var(--w-hit) calc(var(--jp-anim) * 100%), var(--w-seam-soft));
   box-shadow: 0 0 calc(var(--jp-anim) * 10px) var(--w-hit-wash);
@@ -327,7 +328,7 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
    到 --jp-anim=1 时四块正好拼满整格 —— 这个瞬间就是判定点。
    用 conic-gradient 一次画四个角，避免四个伪元素。
    底色从白（刚出现）过渡到谱面主色（合拢时），呼应「从白色到充满颜色」。 */
-.jp-key.is-tap::before {
+:global(.jp-key.is-tap::before) {
   content: "";
   position: absolute;
   inset: 0;
@@ -362,6 +363,19 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
   opacity: calc(0.35 + var(--jp-anim) * 0.65);
   pointer-events: none;
 }
+/* 判定点命中：整格是实色，作为「就是现在」的确认 */
+:global(.jp-key.is-tap.is-tap-passed) {
+  background: var(--w-hit);
+  border-color: color-mix(in oklab, var(--w-hit) 70%, white);
+  box-shadow: 0 0 0 calc((1 - var(--jp-passed, 0)) * 3px) var(--w-hit),
+    0 0 14px var(--w-hit);
+  opacity: calc(1 - var(--jp-passed, 0) * 0.9);
+}
+/* 判定后：填满的实色块就地淡出（不外扩、不散开） */
+:global(.jp-key.is-tap.is-tap-passed::before) {
+  background: var(--w-hit);
+  opacity: calc(1 - var(--jp-passed, 0));
+}
 
 /* ---- hold：长按 + 一条跨格不断的长条 ----
    jubeat 的长押是「长按」：手指按住起点格不放，起点格全程高亮，
@@ -375,12 +389,12 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
    改成在亮色块上叠一个面板底色的等腰三角，格子仍是完整方块，
    只是「贴着行进方向那条边的中点凹进去一块」，形状与三角头呼应。
    尺寸刻意做小（深 20%、底边 34%）：格子只有约 45px，切太深会吃掉半个格。 */
-.jp-key.is-hold-root {
+:global(.jp-key.is-hold-root) {
   background: var(--w-hit);
   border-color: var(--w-hit);
   box-shadow: 0 0 0 2px var(--w-hit-wash), 0 0 12px var(--w-hit-wash);
 }
-.jp-key.is-hold-root::before {
+:global(.jp-key.is-hold-root::before) {
   content: "";
   position: absolute;
   inset: 0;
@@ -391,27 +405,27 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
   /* 等腰三角：默认朝右开口（尖端朝向格心） */
   clip-path: polygon(100% 50%, 80% 33%, 80% 67%);
 }
-.jp-key.is-hold-root[data-jp-dir="right"]::before {
+:global(.jp-key.is-hold-root[data-jp-dir="right"]::before) {
   clip-path: polygon(100% 50%, 80% 33%, 80% 67%);
 }
-.jp-key.is-hold-root[data-jp-dir="left"]::before {
+:global(.jp-key.is-hold-root[data-jp-dir="left"]::before) {
   clip-path: polygon(0% 50%, 20% 67%, 20% 33%);
 }
-.jp-key.is-hold-root[data-jp-dir="down"]::before {
+:global(.jp-key.is-hold-root[data-jp-dir="down"]::before) {
   clip-path: polygon(50% 100%, 33% 80%, 67% 80%);
 }
-.jp-key.is-hold-root[data-jp-dir="up"]::before {
+:global(.jp-key.is-hold-root[data-jp-dir="up"]::before) {
   clip-path: polygon(50% 0%, 67% 20%, 33% 20%);
 }
 
 /* 终点格：长条头到这里，给一圈描边呼应三角头的方向 */
-.jp-key.is-hold-end {
+:global(.jp-key.is-hold-end) {
   border-color: color-mix(in oklab, var(--w-hit) 78%, white);
   box-shadow: 0 0 0 2px var(--w-hit-wash), inset 0 0 12px var(--w-hit-wash);
 }
 
 /* 到终点后的收合（复用 tap 的动画变量） */
-.jp-key.is-closing {
+:global(.jp-key.is-closing) {
   background: color-mix(in oklab, var(--w-hit) calc(var(--jp-anim) * 100%), var(--w-panel));
   border-color: color-mix(in oklab, var(--w-hit) calc(var(--jp-anim) * 100%), var(--w-seam-soft));
   transform: scale(calc(0.97 + var(--jp-anim) * 0.06));
@@ -486,5 +500,5 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 :global(html:not(.js)) .jp-gate { display: none; }
 :global(html:not(.js)) .jp-diff { pointer-events: none; }
 :global(html:not(.js)) .jp-pad { opacity: 0.72; }
-@media (prefers-reduced-motion: reduce) { .jp-key { transition: none; } }
+@media (prefers-reduced-motion: reduce) { :global(.jp-key) { transition: none; } }
 </style>
