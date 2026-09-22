@@ -568,20 +568,63 @@ export class AudioClockPlayer {
 }
 
 /**
+ * 解析结果缓存：key = `${bpm 锚点 ?? '-'}|${字节长度}|${首尾各 8 字节的十六进制}`。
+ *
+ * 为什么用内容指纹而不是对象引用：音频字节来自 chart-source 的模块级缓存，
+ * 同一首歌的多个难度拿到的是**同一个 Uint8Array**，但 decodeAudio 后的
+ * AudioBuffer / 峰值 / 相位是这个页面上最贵的一次计算（1.9 MB ogg 解码 + 1200 桶波形）。
+ * 三难度各算一遍纯属浪费，所以按内容去重。
+ *
+ * 只缓存「字节 + bpm 锚点」都相同的解析结果。bpm 必须进 key：
+ * detectTempo 在锚定模式下返回的 bpm/offset 直接取决于它。
+ *
+ * @type {Map<string, Promise<object>>}
+ */
+const analysisCache = new Map();
+
+/** 内容指纹：长度 + 首尾字节，足以区分不同曲目而又不必哈希整个 1.9 MB */
+function fingerprint(bytes, bpm) {
+  const n = bytes.length;
+  const head = Array.from(bytes.subarray(0, Math.min(8, n))).join(',');
+  const tail = Array.from(bytes.subarray(Math.max(0, n - 8))).join(',');
+  return `${bpm ?? '-'}|${n}|${head}|${tail}`;
+}
+
+/** 清空解析缓存（音频换源或需要强制重算时用） */
+export function clearAnalysisCache() {
+  analysisCache.clear();
+}
+
+/**
  * 一次性把音频解析到「可画、可播、可量」的状态。
+ *
+ * 结果按（音频内容 + bpm 锚点）缓存：页面上一首歌最多三个难度预览器，
+ * 它们共用同一份音频，解析结果也应当共用 —— 否则三次 1.9 MB ogg 解码
+ * 会把主线程占满好几秒，看起来就像「加载很慢」。
+ *
  * @param {Uint8Array} bytes bgm 原始字节
  * @param {{buckets?:number, maxSeconds?:number, bpm?:number|null}} [opts]
  *   bpm 为谱面锚定 BPM：给了就以它为准，音频只用来求首拍相位。
  */
 export async function analyzeAudio(bytes, { buckets = 1200, maxSeconds = 90, bpm = null } = {}) {
-  const buffer = await decodeAudio(bytes);
-  const info = describeBuffer(buffer);
-  const peaks = computePeaks(buffer, buckets);
-  let tempo = null;
-  try {
-    tempo = detectTempo(buffer, { maxSeconds, bpm });
-  } catch {
-    tempo = null;
-  }
-  return { buffer, info, peaks, tempo };
+  const key = fingerprint(bytes, bpm);
+  if (analysisCache.has(key)) return analysisCache.get(key);
+
+  const p = (async () => {
+    const buffer = await decodeAudio(bytes);
+    const info = describeBuffer(buffer);
+    const peaks = computePeaks(buffer, buckets);
+    let tempo = null;
+    try {
+      tempo = detectTempo(buffer, { maxSeconds, bpm });
+    } catch {
+      tempo = null;
+    }
+    return { buffer, info, peaks, tempo };
+  })();
+
+  analysisCache.set(key, p);
+  // 失败不要留下坏缓存，否则后续重试会一直拿到同一个 rejected promise
+  p.catch(() => analysisCache.delete(key));
+  return p;
 }

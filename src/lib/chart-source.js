@@ -123,6 +123,40 @@ function levelOfEntryName(name) {
 }
 
 /**
+ * 音频字节缓存：key = .mcz 的 CDN 地址，value = 该谱包的音频字节 + mime。
+ *
+ * 为什么必须有：页面上每个难度是**独立的预览器容器**（.jp，data-diff 不同），
+ * 三难度各调一次 fetchAssets —— 没有缓存的话同一首歌的 bgm.ogg 会被下载三遍。
+ * 实测单个 .mcz 的音频约 1.9 MB（占整包 95% 以上），三难度就是 5.7 MB，
+ * 而这正是「明明走了 CDN 还是很慢」的主因。
+ *
+ * 只缓存字节，不缓存 blob URL：blob URL 的生命周期由调用方 revokeObjectURL 管理，
+ * 跨预览器共享同一个 URL 会让释放时机变得难以推理。
+ * @type {Map<string, Promise<{bytes:Uint8Array, mime:string, name:string}>>}
+ */
+const audioCache = new Map();
+
+/** 清空音频缓存（多 CDN 节点切换后旧字节可能不再适用） */
+export function clearAudioCache() {
+  audioCache.clear();
+}
+
+/** 取（并缓存）音频字节；同一 .mcz 并发调用只会真正下载一次 */
+export function loadAudioBytes(url) {
+  if (audioCache.has(url)) return audioCache.get(url);
+  const p = (async () => {
+    const entries = await readZipEntries(url);
+    const e = entries.find((x) => /\.(ogg|mp3|m4a)$/i.test(x.name));
+    if (!e) throw new Error('谱包里没有音频条目');
+    return { bytes: await readZipEntry(url, e), mime: mimeOf(e.name), name: e.name };
+  })();
+  audioCache.set(url, p);
+  // 失败不要留下坏缓存，否则后续重试会一直拿到同一个 rejected promise
+  p.catch(() => audioCache.delete(url));
+  return p;
+}
+
+/**
  * 按需取音频/曲绘。
  *
  * 音频同时给出两种形态：
@@ -131,28 +165,33 @@ function levelOfEntryName(name) {
  *   · audioUrl   —— blob URL，供 <audio> 降级播放，也方便调试直接丢给浏览器
  * 调用方负责在不用时 revokeObjectURL。
  *
+ * 音频字节按 .mcz 地址走模块级缓存，同一首歌的多个难度共用一份；
+ * 曲绘不缓存 —— 它只有几十 KB，且每次都要新建 blob URL 给 CSS 变量用。
+ *
  * @param {string} url
  * @param {{audio?:boolean, cover?:boolean}} opts
  * @returns {Promise<{audioUrl:string|null, audioBytes:Uint8Array|null, audioMime:string|null, coverUrl:string|null}>}
  */
 export async function fetchAssets(url, { audio = false, cover = false } = {}) {
-  const entries = await readZipEntries(url);
   let audioUrl = null;
   let audioBytes = null;
   let audioMime = null;
   let coverUrl = null;
 
-  for (const e of entries) {
-    if (audio && !audioBytes && /\.(ogg|mp3|m4a)$/i.test(e.name)) {
-      const bytes = await readZipEntry(url, e);
-      audioBytes = bytes;
-      audioMime = mimeOf(e.name);
-      audioUrl = URL.createObjectURL(new Blob([bytes], { type: audioMime }));
-    } else if (cover && !coverUrl && /(^|\/)jkt[^/]*\.(png|jpe?g)$/i.test(e.name)) {
+  if (audio) {
+    const got = await loadAudioBytes(url);
+    audioBytes = got.bytes;
+    audioMime = got.mime;
+    audioUrl = URL.createObjectURL(new Blob([got.bytes], { type: audioMime }));
+  }
+
+  if (cover) {
+    const entries = await readZipEntries(url);
+    const e = entries.find((x) => /(^|\/)jkt[^/]*\.(png|jpe?g)$/i.test(x.name));
+    if (e) {
       const bytes = await readZipEntry(url, e);
       coverUrl = URL.createObjectURL(new Blob([bytes], { type: mimeOf(e.name) }));
     }
-    if ((!audio || audioUrl) && (!cover || coverUrl)) break;
   }
 
   return { audioUrl, audioBytes, audioMime, coverUrl };

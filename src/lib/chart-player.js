@@ -49,17 +49,23 @@ function keyPoint(k) {
 }
 
 /**
- * 三角头朝向：0=右 1=下 2=左 3=上。
- * 取位移的主要分量（|Δcol| >= |Δrow| 走横向，否则纵向），
- * 同键长押没有位移，按「向右」处理即可（此时三角只是个端点标记）。
+ * 长押行进方向，返回 'right' | 'down' | 'left' | 'up'。
+ * 取位移的主要分量（|Δcol| >= |Δrow| 走横向，否则纵向）；
+ * 同键长押没有位移，按 right 处理即可（此时三角只是个端点标记）。
+ *
+ * 为什么返回字符串而不是 0..3 的数字：方向要经 data-jp-dir 属性落到格子上，
+ * CSS 侧用 `.jp-key.is-hold-root[data-jp-dir="right"]::before` 逐条匹配四个方向的
+ * 缺口。属性选择器只能比字符串；写数字就得靠 `[style*="--jp-dir: 0"]` 去猜行内
+ * style，既脆又会被无关的行内变量误命中。字符串让 JS 与 CSS 共用同一套词，
+ * 两端谁也不需要知道对方的编号约定。
  */
 function dirOf(h) {
   const a = keyPoint(h.key);
   const b = keyPoint(h.endKey);
   const dc = b.col - a.col;
   const dr = b.row - a.row;
-  if (Math.abs(dc) >= Math.abs(dr)) return dc < 0 ? 2 : 0;
-  return dr < 0 ? 3 : 1;
+  if (Math.abs(dc) >= Math.abs(dr)) return dc < 0 ? 'left' : 'right';
+  return dr < 0 ? 'up' : 'down';
 }
 
 const PAD_KEYS = 16;
@@ -350,11 +356,19 @@ export function mountChart(root, chart) {
    */
   const simulHue = (g) => (g * 137.508) % 360;
 
+  // 每帧重设前要清掉的「状态类」。类名必须与 ChartPreview.astro 里真正有样式的
+  // 选择器一一对应：多留一个不存在的类（比如旧版的 is-hold-head / is-hold-trail）
+  // 不会报错，只会静默不生效 —— 长押看上去就只剩起点高亮，方向缺口永远是默认朝右。
+  const STATE_CLASSES = ['is-tap', 'is-hold-head', 'is-hold-end', 'is-hold-root', 'is-closing', 'is-simul'];
+
   function render(t) {
     for (let i = 0; i < keyEls.length; i++) {
       const el = keyEls[i];
       const st = stateOf(i + 1, t);
-      el.classList.remove('is-tap', 'is-hold-head', 'is-hold-trail', 'is-hold-root', 'is-closing', 'is-simul');
+      el.classList.remove(...STATE_CLASSES);
+      // 方向是「当前这一帧的属性」，不是状态位的累加：清干净再按需写回，
+      // 否则长押走过去之后，格子会留着上一根长押的方向，缺口指错。
+      delete el.dataset.jpDir;
       // 双押提示：同组共用同一个色相变量，单押不染色
       if (st.simul) {
         el.classList.add('is-simul');
@@ -368,13 +382,19 @@ export function mountChart(root, chart) {
         el.style.setProperty('--jp-anim', String(easeOutCubic(st.phase)));
         if (st.seq) el.dataset.jpSeq = String(st.seq);
       } else if (st.mode === 'hold-head') {
-        el.classList.add('is-hold-head');
+        // 三角头所在格。rooted = 头还压在起点格上（此时起点格同时也是头）。
+        // 用 is-hold-root 而不是旧版的 is-hold-head：新 CSS 里只有 is-hold-root
+        // 定义了那个「朝行进方向开口的三角缺口」。
         if (st.rooted) el.classList.add('is-hold-root');
+        el.classList.add('is-hold-end');
         el.style.setProperty('--jp-hold', String(st.phase));
-        el.style.setProperty('--jp-dir', String(st.dir));
+        // 方向以 data-jp-dir 落到格子上，供 CSS 的属性选择器匹配缺口朝向。
+        el.dataset.jpDir = st.dir;
         if (st.seq) el.dataset.jpSeq = String(st.seq);
       } else if (st.mode === 'hold-trail') {
-        el.classList.add('is-hold-trail');
+        // 长条中段：被头扫过的格。CSS 里没有专门的 trail 样式，走的还是
+        // is-hold-end 那条「一圈描边」——中段连成带子，头尾各自有描边。
+        el.classList.add('is-hold-end');
         el.style.setProperty('--jp-hold', String(st.phase));
       } else if (st.mode === 'hold-root') {
         el.classList.add('is-hold-root');

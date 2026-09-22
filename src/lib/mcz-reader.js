@@ -24,10 +24,18 @@
 // 坐标会整体漂移，回读条目时越过真实 EOF，拿到 0 字节，
 // 前端表现为「条目数据不足（需要 2076，收到 0）」。
 //
-// 因此本模块严格遵循三条：
-//   1) 总长以 `bytes=0-` 全量响应的**真实字节数**为准（geometry()），不用声明值；
+// 因此本模块严格遵循四条：
+//   1) 总长取自 Range 响应的 content-range 声明值（geometry()），并把它当作**该节点自己的
+//      坐标空间长度**使用 —— 每个节点的声明总长就是它自己坐标空间的总长，所以「用它算窗口
+//      起点、读尾部 EOCD」在该节点上自洽。实测 jsdelivr（声明 1805303 / 真实 1805295，
+//      坐标恒定偏移 -4）用声明值算窗口能正确命中 EOCD，反而用真实总长算窗口会找不到 EOCD。
+//      注意：这里以前写的是「以 bytes=0- 全量响应的真实字节数为准」，但实现从来不是那样
+//      （会多打一次全量请求），注释已按实现更正。
 //   2) 每一个 Range 窗口起点都以响应头 content-range 里的**实际起点**为准；
 //   3) 读取条目时按 local header 的签名自校验，不匹配就在窗口内搜 LFH 签名纠偏。
+//   4) 中央目录的真正第一道防线是**在尾部 64KB 窗口内反向扫 CDH 签名并校验条目数**；
+//      按声明 cdOffset 单独取中央目录只是拿不到 EOCD 时的兜底（在虚高节点上那个绝对
+//      偏移是错的，所以扫窗口必须排在前面）。
 // ─────────────────────────────────────────────────────────────
 
 const EOCD_SIG = 0x06054b50;
@@ -57,13 +65,201 @@ export function getCdnBase() {
   return cdnBase;
 }
 
-/** 把 jsDelivr 默认前缀替换成当前生效的节点前缀。 */
+/**
+ * 匹配「CDN 前缀」，即 `https://<节点>/gh/<owner>/<repo>@<branch>/` 整段。
+ *
+ * 为什么必须连 `/gh/<owner>/<repo>@<branch>/` 一起吃掉：这些节点都是 jsDelivr
+ * 的镜像，路径形状固定为 `/<gh|npm|...>/<owner>/<repo>@<ref>/<file>`。早先这个
+ * 正则只吃到 host（末尾停在 `/`），于是替换时 `gh/SnowindMe/...` 被原样留下，
+ * 再拼上新前缀就变成 `https://<新节点>/gh/gh/SnowindMe/...` —— 双份 `/gh/`，
+ * CDN 直接回 404，表现为「多节点实测里所有节点都不可用」。
+ *
+ * owner/repo 段用非贪婪 + 必须有第二个 `/` 收尾，避免把文件路径也吃进去。
+ */
+const CDN_PREFIX_RE =
+  /^https:\/\/(?:cdn\.jsdelivr\.net|fastly\.jsdelivr\.net|gcore\.jsdelivr\.net|jsdelivr\.b-cdn\.net|cdn\.jsdmirror\.com)\/gh\/[^/]+\/[^/]+?\//;
+
+/**
+ * 把 CDN 前缀替换成当前生效的节点前缀。
+ *
+ * `cdnBase` 必须是**含仓库路径的完整前缀**，形如
+ * `https://<节点>/gh/<owner>/<repo>@<branch>/`（即 MCZ_CDN_BASE 那一层，
+ * 而不是 MCZ_CDN_NODES[i].base 的 `https://<节点>/gh/`）。
+ * 传只到 `/gh/` 的前缀会拼出缺 owner/repo 的地址，同样 404。
+ */
 export function applyCdnBase(url) {
   if (!cdnBase) return url;
-  return url.replace(
-    /^https:\/\/cdn\.jsdelivr\.net\//,
-    cdnBase.endsWith('/') ? cdnBase : cdnBase + '/',
-  );
+  return url.replace(CDN_PREFIX_RE, cdnBase.endsWith('/') ? cdnBase : cdnBase + '/');
+}
+
+// ─────────────── 多 CDN 节点实测选择（行锚点：MCZ_CDN_NODES 在 mcz-match.js） ───────────────
+// 文件可能超过 64 KB 行锚点窗口，所以本文件里的行号以 grep 结果为准，不要按分段读取的位置推断。
+
+/**
+ * 从「基准 URL」与「目标节点前缀」推出该节点上同一文件的完整 URL。
+ *
+ * 这里的 `base` 必须是**完整前缀**（含 `/gh/<owner>/<repo>@<branch>/`），
+ * 不是 MCZ_CDN_NODES[i].base 那种只到 `/gh/` 的形态。为免调用方传错，
+ * 下面 `nodesWithBase()` 会从样本 URL 里直接抽出仓库路径段补全。
+ *
+ * @param {string} url 任一 jsDelivr 系节点的完整 URL
+ * @param {string} base 目标完整前缀
+ */
+export function swapCdnHost(url, base) {
+  return url.replace(CDN_PREFIX_RE, base.endsWith('/') ? base : base + '/');
+}
+
+/**
+ * 从完整 URL 里抽出 `/gh/<owner>/<repo>@<branch>/` 这段里的 **`<owner>/<repo>@<branch>/`**
+ * （即去掉开头的 `/gh/`，因为节点的 base 本身就以 `/gh/` 结尾）。
+ */
+function repoPathOf(url) {
+  const m = url.match(/\/gh\/([^/]+\/[^/]+?\/)/);
+  return m ? m[1] : null;
+}
+
+/**
+ * 把「只到 /gh/ 的节点前缀」补全成「含仓库路径的完整前缀」。
+ *
+ * 为什么要补：MCZ_CDN_NODES[i].base 是 `https://<节点>/gh/`，而
+ * setCdnBase / swapCdnHost 要的是含 `<owner>/<repo>@<branch>/` 的完整前缀。
+ * 少了这一段就会拼出 404 的地址（见 CDN_PREFIX_RE 的说明）。
+ *
+ * @param {Array<{id:string, base:string, label?:string}>} nodes
+ * @param {string} sampleUrl 任一节点的完整 .mcz URL（用来取仓库路径段）
+ */
+export function nodesWithBase(nodes, sampleUrl) {
+  const repo = repoPathOf(sampleUrl);
+  if (!repo) return nodes.map((n) => ({ ...n }));
+  return nodes.map((n) => ({
+    ...n,
+    base: n.base.endsWith('/') ? n.base + repo.replace(/^\//, '') : n.base + repo,
+  }));
+}
+
+/**
+ * 实测一个节点。样本**刻意用真实读取同款的小窗口**，而不是开放式全量请求：
+ *   · 五个节点并发探测时不会把下行带宽挤爆（早先用 bytes=0- 全量样本，
+ *     1.8MB × 5 并发在弱网下直接把后续的谱面请求拖成 Failed to fetch）；
+ *   · 小窗口同样能暴露 brotli 重编码 —— 重编码节点会声明 1024 而实收 1020，
+ *     一次请求即可判定。
+ *
+ * **必须容忍冷文件 404**：CDN 对未被请求过的文件可能先回 404（回源未完成），
+ * 稍后重试即 206。实测出现过「五个并发里四个 404、一个 206」的情况，
+ * 所以这里对 404 做一次短退避重试，重试仍 404 才判不可用。
+ *
+ * 判定分三档：
+ *   ok=false       重试后仍失败 / 404 / 超时 —— 该节点对这个文件不可用
+ *   accurate=false 声明长度与实收字节不符 —— 会触发 ZIP 坐标漂移，降权
+ *   accurate=true  既能用又字节精确 —— 优先
+ *
+ * @param {string} url 任一 jsDelivr 系节点的完整 URL（会被换到目标节点）
+ * @param {{id:string, base:string}} node
+ * @param {{timeoutMs?:number, sampleRange?:string}} [opts]
+ */
+export async function benchCdnNode(url, node, { timeoutMs = 6000, sampleRange = 'bytes=0-1023' } = {}) {
+  const target = swapCdnHost(url, node.base);
+  const t0 = performance.now();
+  const elapsed = () => performance.now() - t0;
+
+  const once = async () => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(target, { headers: { Range: sampleRange }, signal: ctrl.signal });
+      if (res.status === 404) return { retry: true, status: 404 };
+      if (!res.ok && res.status !== 206) return { fatal: 'status ' + res.status };
+      const cr = res.headers.get('content-range');
+      let declaredTotal = null;
+      if (cr) {
+        const m = cr.match(/bytes\s+(\d+)-(\d+)\/(\d+|\*)/i);
+        if (m && m[3] !== '*') declaredTotal = Number(m[3]);
+      }
+      const buf = new Uint8Array(await res.arrayBuffer());
+      let want = null;
+      const rm = /bytes=(\d+)-(\d+)/.exec(sampleRange);
+      if (rm) want = Number(rm[2]) - Number(rm[1]) + 1;
+      const realLen = buf.byteLength;
+      const magicOk = realLen >= 4 && buf[0] === 0x50 && buf[1] === 0x4b;
+      const exact = want == null ? true : realLen === want;
+      return { done: true, declaredTotal, realLen, want, magicOk, exact, status: res.status };
+    } catch (e) {
+      return { fatal: String(e?.name === 'AbortError' ? 'timeout' : e?.message || e) };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  try {
+    let r = await once();
+    // 冷文件 404：短退避后重试一次
+    if (r.retry) {
+      await new Promise((res) => setTimeout(res, 400));
+      r = await once();
+    }
+    if (r.done) {
+      return {
+        id: node.id,
+        ok: true,
+        accurate: r.exact && r.magicOk,
+        magicOk: r.magicOk,
+        ttfb: elapsed(),
+        dur: elapsed(),
+        declaredTotal: r.declaredTotal,
+        realLen: r.realLen,
+        want: r.want,
+        reason: r.exact ? (r.magicOk ? '' : '字节数对但不是 ZIP') : `重编码（期望 ${r.want} 实收 ${r.realLen}）`,
+      };
+    }
+    if (r.retry) {
+      return { id: node.id, ok: false, accurate: false, ttfb: elapsed(), dur: 0, declaredTotal: null, realLen: 0, reason: '404 重试后仍不可用' };
+    }
+    return { id: node.id, ok: false, accurate: false, ttfb: elapsed(), dur: 0, declaredTotal: null, realLen: 0, reason: r.fatal };
+  } catch (e) {
+    return { id: node.id, ok: false, accurate: false, ttfb: elapsed(), dur: 0, declaredTotal: null, realLen: 0, reason: String(e?.message || e) };
+  }
+}
+
+/**
+ * 串行实测所有节点并排序，返回最优节点。
+ *
+ * **必须串行探测**：CDN 对「同一文件、同一小 Range、多路并发」这种形态会限流
+ * （实测五个 `bytes=0-1023` 并发里四个回 404，而同一时刻偏移量大的窗口全是 206）。
+ * 串行探测即可避开；实测同一节点连续 12 次串行 `bytes=0-1023` 全部 206，
+ * 所以这里**统一用 `bytes=0-1023` 这一个窗口**，不额外错开偏移 —— 错开偏移既没有
+ * 实测依据，也会让各节点的判定基准不可比（声明长度只在同一窗口下才可比）。
+ *
+ * 排序规则（与 _cdn_bench_browser.mjs 的实测结论一致）：
+ *   1) 可用的排在不可用之前；
+ *   2) 可用的里面，字节精确的排在会被 brotli 重编码的之前
+ *      —— 快但坐标漂移的节点会稳定地读坏谱面，不能只看速度；
+ *   3) 同档内按 TTFB 升序。
+ *
+ * 节点表的 base 允许是只到 `/gh/` 的形态；这里会用 sampleUrl 里的仓库路径段
+ * 补全成完整前缀再探测，返回的 ranked[].node.base 已是完整前缀，可直接交给
+ * setCdnRanking（否则 setCdnBase 会拼出 404 的地址）。
+ *
+ * @param {string} sampleUrl 任一 jsDelivr 系节点的 .mcz URL
+ * @param {Array<{id:string, base:string}>} nodes
+ * @param {{timeoutMs?:number}} [opts]
+ * @returns {Promise<{best:object|null, ranked:Array}>}
+ */
+export async function raceCdnNodes(sampleUrl, nodes, opts = {}) {
+  const full = nodesWithBase(nodes, sampleUrl);
+  const results = [];
+  for (let i = 0; i < full.length; i++) {
+    const n = full[i];
+    // 统一窗口：串行探测不会触发限流，同一窗口也让各节点字节精确性可比
+    const r = await benchCdnNode(sampleUrl, n, { ...opts, sampleRange: 'bytes=0-1023' });
+    results.push({ ...r, node: n });
+  }
+  const ranked = results.slice().sort((a, b) => {
+    if (a.ok !== b.ok) return a.ok ? -1 : 1;
+    if (a.accurate !== b.accurate) return a.accurate ? -1 : 1;
+    return a.ttfb - b.ttfb;
+  });
+  const best = ranked.find((r) => r.ok && r.accurate) || ranked.find((r) => r.ok) || null;
+  return { best, ranked };
 }
 
 /**
@@ -76,34 +272,25 @@ async function geometry(url) {
   if (geoCache.has(real)) return geoCache.get(real);
 
   const p = (async () => {
-    // 1) 首选开放式全量 Range：同时拿到「声明总长」与「真实字节数」。
-    //    这是唯一能拿到真实长度的路径，必须重试到拿到为止 ——
-    //    若这里因为瞬时断流而静默降级，兜底路径只能拿到虚高的声明长度，
-    //    后续算 tailStart 就会整体漂移，正是「未找到 EOCD」的成因。
-    try {
-      const r = await fetchWithRetry(real, { headers: { Range: 'bytes=0-' } });
-      if (r.ok) {
-        const buf = new Uint8Array(await r.arrayBuffer());
-        if (buf.length) {
-          const cr = r.headers.get('content-range') || '';
-          const declared = Number(cr.match(/bytes\s+\d+-\d+\/(\d+)/)?.[1] || buf.length);
-          return { declaredLen: declared, realLen: buf.length, skew: declared - buf.length };
-        }
-      }
-    } catch {
-      /* 退回闭区间 + HEAD */
-    }
-
-    // 2) 兜底：闭区间探声明总长（顺带预热边缘缓存，代价 1 KB）
+    // 只要 1 KB 就能拿到文件总长：206 响应头里的 content-range 是
+    //   bytes 0-1023/1934866      ← 末尾就是真实总长
+    // 早先这里首选的是开放式 `bytes=0-`，那等于把整个 .mcz 全量下载一遍
+    // （实测 1.9 MB）只为了拿一个数字，之后再重新 Range 请求中央目录与条目，
+    // 白白多传一倍数据、多花好几秒。闭区间探测同样能拿到总长，且带缓存预热。
     let declared = 0;
+    let realLen = 0;
     try {
       const r = await fetchWithRetry(real, { headers: { Range: 'bytes=0-1023' } });
-      await r.arrayBuffer().catch(() => null);
+      const buf = new Uint8Array(await r.arrayBuffer());
       const cr = r.headers.get('content-range') || '';
       declared = Number(cr.match(/bytes\s+\d+-\d+\/(\d+)/)?.[1] || 0);
       if (!declared && r.ok) declared = Number(r.headers.get('content-length') || 0);
+      // 没拿到 content-range 时只能退回「响应体长度」，但那只覆盖 1 KB，
+      // 不能当作总长，所以这种情况交给下面的 HEAD 兜底。
+      if (declared) realLen = declared;
+      void buf;
     } catch {
-      /* 继续 */
+      /* 交给下面的 HEAD 兜底 */
     }
     if (!declared) {
       try {
@@ -113,7 +300,7 @@ async function geometry(url) {
         /* 交给调用方报错 */
       }
     }
-    return { declaredLen: declared, realLen: declared, skew: 0 };
+    return { declaredLen: declared, realLen: realLen || declared, skew: 0 };
   })();
 
   geoCache.set(real, p);
@@ -248,8 +435,68 @@ function findLfh(buf, limit = 64) {
   return -1;
 }
 
+/** 排序后的节点名单（由 setCdnRanking 写入，读取失败时按它换节点） */
+let cdnRanking = null;
+/** 当前用第几个节点（越靠前越优） */
+let cdnRankIndex = 0;
+
+/**
+ * 登记节点回退名单，**不发任何请求**。
+ *
+ * 会把首选节点设为当前生效前缀 —— 这一点是必须的：页面里那些 .mcz 地址是
+ * **构建期**烧进 HTML 的（取自当时的 MCZ_CDN_BASE），运行期改 mcz-match.js
+ * 的常量不会追改已生成的索引。要让「换默认源」真的生效，只能在这里用
+ * setCdnBase 把读取时的前缀替换掉。
+ *
+ * 入参允许两种形状，都会归一成「含仓库路径的完整前缀」再生效：
+ *   · raceCdnNodes 的 ranked 项（节点在 `.node.base` 上，且可能是只到 /gh/ 的形态）
+ *   · 直接给 `{id, base}` 的节点表
+ * 归一很关键：早先直接取 `ranked[0].base`，而 raceCdnNodes 返回的项根本没有顶层
+ * `base`（它在 .node 里），于是 cdnBase 被设成 undefined、applyCdnBase 原样返回，
+ * 整条多节点回退静默失效。
+ *
+ * @param {Array<{id:string, base?:string, node?:{id:string, base:string}}>} ranked 已排好序的节点列表
+ * @param {string} [sampleUrl] 用来补全仓库路径段的样本 URL；缺省时若 base 已是完整前缀则直接可用
+ */
+export function setCdnRanking(ranked, sampleUrl) {
+  const list = (ranked || [])
+    .map((r) => (r && r.node ? { ...r.node } : { ...r }))
+    .filter((n) => n && typeof n.base === 'string' && n.base.length > 0);
+  const normalized = list.length && sampleUrl ? nodesWithBase(list, sampleUrl) : list;
+  cdnRanking = normalized.length ? normalized : null;
+  cdnRankIndex = 0;
+  if (cdnRanking) setCdnBase(cdnRanking[0].base);
+}
+
+/** 当前生效节点在排序里的下标（调试用） */
+export function getCdnRankIndex() {
+  return cdnRankIndex;
+}
+
+/**
+ * 换到下一个节点。返回是否换成功。
+ * **只在读取已经彻底失败后才调用** —— 早先版本每次失败都换，配合重试
+ * 会在几秒内对同一个文件反复打 `bytes=0-1023`，把 CDN 的限流窗口一直续着，
+ * 反而让本来能成功的读取也被 404 拖死。
+ */
+export function advanceCdnNode() {
+  if (!cdnRanking || cdnRankIndex + 1 >= cdnRanking.length) return false;
+  cdnRankIndex += 1;
+  setCdnBase(cdnRanking[cdnRankIndex].base);
+  return true;
+}
+
 /**
  * 读取远端 zip 的条目表（中央目录）。
+ *
+ * 重试策略刻意保守，因为**重试本身会加重 CDN 限流**：实测同一个节点、
+ * 同一个 `bytes=0-1023`，前一次 206、几毫秒后 404 —— CDN 对短时高频的
+ * 小窗口访问会限流。早先版本在这里「每次失败都换节点 + 立刻重试」，
+ * 结果每轮都再打一次 `bytes=0-1023`，反而把限流一直续着，最后连
+ * 一次成功的读取都被后面的 404 埋葬。
+ *
+ * 所以：失败后退避更久，且**只有三轮都失败才换节点**。
+ *
  * @param {string} url
  * @returns {Promise<Array<{name:string,compMethod:number,compSize:number,uncompSize:number,localOffset:number}>>}
  */
@@ -261,13 +508,23 @@ export async function readZipEntries(url, opts = {}) {
       return await readZipEntriesOnce(url);
     } catch (e) {
       lastErr = e instanceof Error ? e : new Error(String(e));
-      // 只在还有重试机会时清理几何缓存：
-      // 这类失败多半是总长探测偏了（瞬时断流导致拿到虚高的声明长度），
-      // 清掉缓存让下一轮重新探测真实长度，而不是复用错误结果。
       if (attempt < tries) {
+        // 这类失败多半是总长探测偏了（瞬时断流导致拿到虚高的声明长度），
+        // 清掉缓存让下一轮重新探测真实长度，而不是复用错误结果。
         geoCache.delete(applyCdnBase(url));
-        await sleep(backoffMs(attempt));
+        // 让 CDN 的限流窗口过去：退避比上一版长得多
+        await sleep(backoffMs(attempt) * 4);
       }
+    }
+  }
+  // 三轮都没成就说明这个节点确实不行，换下一个节点再给最后一次机会。
+  if (advanceCdnNode()) {
+    geoCache.delete(applyCdnBase(url));
+    await sleep(600);
+    try {
+      return await readZipEntriesOnce(url);
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e));
     }
   }
   throw lastErr ?? new Error('读取谱面包失败');

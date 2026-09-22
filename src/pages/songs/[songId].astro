@@ -21,6 +21,19 @@ const sourceFor = (field: string) => song.fieldSources?.[field as keyof typeof s
 const mczIndex = loadMczIndex();
 const mczEntry = mczIndex[String(song.songId)] ?? null;
 const mczUrl = mczEntry?.url ?? null;
+
+// 单预览器：三个难度合成一份数据交给 ChartPreview，由它渲染左侧难度栏。
+// 判定/长押数用 .mc 文件名里的难度标记对齐（bsc/adv/ext 与 basic/advanced/extreme 的对应关系
+// 由 noteKey 给出），与「谱面难度」表格共用同一套取值。
+const diffItems = diffs.map(diff => ({
+  diff,
+  short: diffLabels[diff],
+  level: display(song.levels[diff], null),
+  noteCount: song.notecounts?.[noteKey[diff]] ?? null,
+}));
+// 铺面列的「▶ 预览」跳转：锚点落在单容器上（#preview-ext），
+// 同时带 data-jp-jump={diff} 让 JS 顺手切到对应难度。
+// 首版先只保留锚点语义，切换逻辑留给后续 chart-player.js 的改动，避免同时动两个文件。
 ---
 
 <Layout title={`${song.title} 的谱面难度、来源、解禁与考据资料。`} description={`${song.title} 的谱面难度、来源、解禁与考据资料。`} section="songs">
@@ -62,7 +75,7 @@ const mczUrl = mczEntry?.url ?? null;
             <td class="cell-num">{display(song.notecounts?.[noteKey[diff]])}</td>
             <td>{sourceLabel(sourceFor(diff))}</td>
             <td class="cell-act">
-              <a class="jp-jump w-btn" href={`#preview-${diff}`} data-jp-jump={diff}>▶ 预览</a>
+              <a class="jp-jump w-btn" href="#preview-ext" data-jp-jump={diff}>▶ 预览</a>
             </td>
           </tr>)}</tbody>
         </table>
@@ -75,20 +88,17 @@ const mczUrl = mczEntry?.url ?? null;
     <section class="w-panel" id="preview">
       <h2 class="wp-h2">铺面预览<span class="wp-h2__note">4×4 面板回放 · 按需加载</span></h2>
       <div class="jp-grid">
-        {diffs.map(diff => (
-          <div class="jp-slot" id={`preview-${diff}`}>
-            <ChartPreview
-              chartId={`${song.songId}-${diff}`}
-              songId={String(song.songId)}
-              songTitle={song.title}
-              mcz={mczUrl}
-              diff={diff}
-              label={`${diffLabels[diff]} ${display(song.levels[diff], '')}`.trim()}
-              bpm={song.bpm}
-              level={display(song.levels[diff], null)}
-            />
-          </div>
-        ))}
+        <div class="jp-slot" id="preview-ext">
+          <ChartPreview
+            chartId={`${song.songId}-multi`}
+            songId={String(song.songId)}
+            songTitle={song.title}
+            mcz={mczUrl}
+            defaultDiff="ext"
+            diffs={diffItems}
+            bpm={song.bpm}
+          />
+        </div>
       </div>
     </section>
 

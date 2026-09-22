@@ -10,8 +10,47 @@
 export const MCZ_REPO = 'SnowindMe/Jubeat2Malody-GUI';
 /** 谱面仓库分支 */
 export const MCZ_BRANCH = 'mcz-releases';
-/** 谱面 CDN 前缀 */
-export const MCZ_CDN_BASE = `https://cdn.jsdelivr.net/gh/${MCZ_REPO}@${MCZ_BRANCH}/`;
+
+/**
+ * 可用 CDN 节点，**顺序即优先级**。
+ *
+ * 排序依据是**实测的「声明总长是否等于真实文件大小」**，不是速度 ——
+ * 这一个指标决定了谱面能不能读出来。验证方法见 _cdn_reencode.mjs：
+ * 先用开放式 `bytes=0-` 拿到真实字节数，再连续 5 次打 `bytes=0-1023`
+ * 比对 content-range 里声明的总长。
+ *
+ * 实测（.mcz = 1805295 字节）：
+ *   · cdn.jsdmirror.com     声明 1805295 恒定准确，平均   47ms  ← 首选
+ *   · fastly.jsdelivr.net   声明 1805295 恒定准确，平均  343ms
+ *   · jsdelivr.b-cdn.net    声明 1805295 恒定准确，平均  466ms
+ *   · raw.githubusercontent 声明 1805295 恒定准确，平均  336ms
+ *   · cdn.jsdelivr.net      **声明 1805303，恒定虚高 8 字节** ← 不能做首选
+ *   · gcore.jsdelivr.net    **声明 1805303，恒定虚高 8 字节**
+ *
+ * 为什么虚高 8 字节是致命的：ZIP 中央目录里每个条目的 localOffset 是
+ * **真实文件坐标**。读 EOCD 需要先知道文件总长才能算「末尾 64 KB」的窗口
+ * 起点；若用虚高的总长，窗口整体后移，读到的 EOCD 偏移与实际不符，
+ * 接着按它去读中央目录、再读条目，就会越过真实 EOF，拿到 0 字节，
+ * 前端表现为「条目数据不足（需要 N，收到 0）」。
+ *
+ * 注意 cdn.jsdmirror.com 在**首次冷请求**某文件时偶发 404（回源未完成），
+ * 稍后重试即 206，所以读取层保留了重试与惰性换节点。
+ */
+export const MCZ_CDN_NODES = [
+  { id: 'jsdmirror', base: 'https://cdn.jsdmirror.com/gh/', label: 'jsdmirror' },
+  { id: 'fastly', base: 'https://fastly.jsdelivr.net/gh/', label: 'Fastly' },
+  { id: 'b-cdn', base: 'https://jsdelivr.b-cdn.net/gh/', label: 'b-cdn' },
+  { id: 'jsdelivr', base: 'https://cdn.jsdelivr.net/gh/', label: 'jsDelivr' },
+];
+
+/** 默认（首选）节点前缀，保持向后兼容 */
+export const MCZ_CDN_BASE = MCZ_CDN_NODES[0].base + `${MCZ_REPO}@${MCZ_BRANCH}/`;
+
+/** 按节点 id 取 URL 前缀 */
+export function cdnBaseOf(nodeId) {
+  const n = MCZ_CDN_NODES.find((x) => x.id === nodeId) || MCZ_CDN_NODES[0];
+  return n.base + `${MCZ_REPO}@${MCZ_BRANCH}/`;
+}
 
 /** 匹配档位：数值越小越可信 */
 export const TIER_RANK = { exact: 0, alt: 1, loose: 2 };
