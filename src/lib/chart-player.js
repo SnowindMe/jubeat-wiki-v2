@@ -40,10 +40,8 @@ const TAP_PASSED_DURATION = 0.18;
 const easeInOut = (p) => (p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2);
 const HOLD_CLOSE = 0.08; // 长押终点后收合
 // —— 长押：起点长按 + 三角头沿路径前进 + 连接线随之前进缩短 ——
-// 前进占比按拍长自适应：0.5 拍也得动得出，12 拍也不能整段都在动。
-const HOLD_SLIDE_PER_BEAT = 0.5; // 每拍分配 50% 行程
-const HOLD_SLIDE_MIN = 0.22; // 前进最少占整段的比例
-const HOLD_SLIDE_MAX = 0.45; // 前进最多占整段的比例
+// 头部的移动时间就是长押持续时间：按下时刻位于起点，结束时刻到达终点。
+// 不能提前在长押前半段滑完，否则视觉上的头部位置会与实际持续时间脱节。
 // 连接线保留比例：三角头走过的地方不留尾巴，线随之前进而缩短。
 // 1.0 = 整条线一直留着；0.5 = 只保留后半段。
 const HOLD_LINE_TAIL = 0.55;
@@ -164,25 +162,20 @@ function bandMarkup(pts, bands) {
     const headLen = Math.min(BAND_HEAD_LEN * cell, f.len * 0.8);
     const headHalf = BAND_HEAD_W * cell;
     const lineHalf = BAND_LINE_W * cell;
-    // 三角头只在「可走行程」内前进，到终点时尖端正好压在终点格心
+    // 参考实机：长押按下时整条路径立即出现，头部在持续时间内移动到终点。
+    // 箭头尖端朝向松开位置；固定细线贯穿全程，头部只遮住自己所在的一小段。
     const travel = Math.max(0, f.len - headLen);
-    const tipT = easeInOut(phase) * travel;
-    const baseT = tipT + headLen;
+    const baseT = easeInOut(phase) * travel;
+    const tipT = baseT + headLen;
     const tip = bandPoint(p0, f, tipT, 0);
     const baseL = bandPoint(p0, f, baseT, headHalf);
     const baseR = bandPoint(p0, f, baseT, -headHalf);
+    const lineStart = bandPoint(p0, f, 0, lineHalf);
+    const lineEnd = bandPoint(p0, f, f.len, lineHalf);
+    const lineEndLow = bandPoint(p0, f, f.len, -lineHalf);
+    const lineStartLow = bandPoint(p0, f, 0, -lineHalf);
+    out.push(`<polygon class="jp-band-line" points="${svgPoint(lineStart)} ${svgPoint(lineEnd)} ${svgPoint(lineEndLow)} ${svgPoint(lineStartLow)}"/>`);
     out.push(`<polygon class="jp-band-head" points="${svgPoint(tip)} ${svgPoint(baseL)} ${svgPoint(baseR)}"/>`);
-    // 两段线（头之前 / 头之后）；用四边形而不是 line，好让线宽随格宽走
-    const seg = (t0, t1) => {
-      if (t1 - t0 < 0.5) return;
-      const a = bandPoint(p0, f, t0, lineHalf);
-      const b = bandPoint(p0, f, t1, lineHalf);
-      const c = bandPoint(p0, f, t1, -lineHalf);
-      const d = bandPoint(p0, f, t0, -lineHalf);
-      out.push(`<polygon class="jp-band-line" points="${svgPoint(a)} ${svgPoint(b)} ${svgPoint(c)} ${svgPoint(d)}"/>`);
-    };
-    seg(0, tipT);
-    seg(baseT, f.len);
   }
   return out.length ? out.join('') : '';
 }
@@ -402,14 +395,12 @@ export function mountChart(root, chart) {
    */
   const holdAt = (h, t) => {
     const span = Math.max(h.endT - h.t, 1e-6);
-    const slideRatio = Math.min(HOLD_SLIDE_MAX, Math.max(HOLD_SLIDE_MIN, h.beats * HOLD_SLIDE_PER_BEAT));
-    const slideEnd = h.t + span * slideRatio;
     if (t >= h.endT) {
       if (t < h.endT + HOLD_CLOSE) return { phase: 1, closing: (t - h.endT) / HOLD_CLOSE };
       return null;
     }
-    const p = t <= h.t ? 0 : t >= slideEnd ? 1 : (t - h.t) / Math.max(slideEnd - h.t, 1e-6);
-    return { phase: p, closing: 0 };
+    const p = t <= h.t ? 0 : (t - h.t) / span;
+    return { phase: Math.min(1, Math.max(0, p)), closing: 0 };
   };
 
   /** 三角头当前所在格号（1..16） */
