@@ -157,15 +157,15 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
   --jp-hold: 0;
 }
 
-/* ---- tap：外圈从外向内收缩到格内 ----
-   --jp-anim: 0(未激活/初始大圈) .. 1(已收缩到位=命中) */
+/* ---- tap：外圈从外向内收缩，到中心即消失 ----
+   --jp-anim: 0(刚出现/贴满整格) .. 1(收缩到中心=消失) */
 .jp-key.is-tap {
   background: color-mix(in oklab, var(--w-hit) calc(var(--jp-anim) * 100%), var(--w-panel));
   border-color: color-mix(in oklab, var(--w-hit) calc(var(--jp-anim) * 100%), var(--w-seam-soft));
   box-shadow: 0 0 calc(var(--jp-anim) * 10px) var(--w-hit-wash);
   transform: scale(calc(0.97 + var(--jp-anim) * 0.06));
 }
-/* 外圈：从贴满整格一路收缩到中心小圈，同时渐隐 —— 对照官方「快门收束」手感。
+/* 外圈：从贴满整格单向收缩到中心，越收越淡，收到中心时刚好归零消失。
    注意 .jp-key 有 overflow:hidden，所以用正 inset 在格内收缩，不能用负值外扩。 */
 .jp-key.is-tap::before {
   content: "";
@@ -174,7 +174,7 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
   border-radius: var(--w-r-xs);
   border: 2px solid var(--w-hit);
   background: color-mix(in oklab, var(--w-hit) 22%, transparent);
-  opacity: calc((1 - var(--jp-anim) * 0.6) * 0.95);
+  opacity: calc((1 - var(--jp-anim)) * 0.95);
   pointer-events: none;
 }
 

@@ -16,7 +16,7 @@
 //       其余预览器会被暂停（见 activePlayer 全局注册表）。
 //
 // 动画模型（对照官方手感）：
-//   tap   : 展开 375ms -> 收合 375ms，共 750ms
+//   tap   : 出现后单向向内收缩，750ms 收缩到中心即消失（不反向散开）
 //   hold  : 起点按下 -> 三角朝起点收拢 -> 按住（保持发光）-> 终点处收合 80ms
 //
 // 约束：无 JS 时页面仍可读（面板空态 + 统计文字，控件不渲染）。
@@ -25,10 +25,8 @@ import { fetchChartSet, fetchAssets, normDiff } from './chart-source.js';
 import { findMczForTitle } from './mcz-match.js';
 import { analyzeAudio, AudioClockPlayer } from './chart-audio.js';
 
-// tap 动画总时长 0.75s：前段展开（从整格满圈向内收缩），后段收合消失。
+// tap 动画时长 0.75s：出现后从整格满圈单向收缩，到中心即消失。
 const TAP_DURATION = 0.75; // tap 从出现到消失的总时长
-const TAP_OPEN = TAP_DURATION * 0.5; // tap 展开
-const TAP_CLOSE = TAP_DURATION * 0.5; // tap 收合
 const HOLD_CLOSE = 0.08; // 长押终点后收合
 const HOLD_FOLD_RATIO = 0.25; // 三角收拢占长押时长的比例
 const PAD_KEYS = 16;
@@ -208,10 +206,9 @@ export function mountChart(root, chart) {
     // 普通 tap
     for (const x of taps) {
       if (x.key !== key) continue;
-      const total = TAP_OPEN + TAP_CLOSE;
       if (t < x.t) continue;
-      if (t >= x.t + total) continue;
-      return { mode: 'tap', phase: (t - x.t) / total };
+      if (t >= x.t + TAP_DURATION) continue;
+      return { mode: 'tap', phase: (t - x.t) / TAP_DURATION };
     }
     return { mode: 'idle', phase: 0 };
   };
@@ -222,9 +219,9 @@ export function mountChart(root, chart) {
       const st = stateOf(i + 1, t);
       el.classList.remove('is-tap', 'is-fold', 'is-held', 'is-closing');
       if (st.mode === 'tap') {
-        const grow = st.phase < 0.5 ? st.phase / 0.5 : (1 - st.phase) / 0.5;
+        // 单向收缩：整段时长单调 0 -> 1，收缩到中心即消失，不做反向散开。
         el.classList.add('is-tap');
-        el.style.setProperty('--jp-anim', String(grow));
+        el.style.setProperty('--jp-anim', String(st.phase));
       } else if (st.mode === 'fold') {
         el.classList.add('is-fold');
         el.style.setProperty('--jp-hold', String(st.phase));
