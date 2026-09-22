@@ -14,7 +14,12 @@ if(!(window as any).__jubeatChromeBound){
   document.addEventListener('click',e=>{const el=e.target;document.querySelectorAll('details.nav-group[open]').forEach(item=>{if(!item.contains(el))item.removeAttribute('open')})});
   document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('details.nav-group[open]').forEach(item=>item.removeAttribute('open'))});
 }
+/* View Transitions 每次 after-swap 都会重写 <html> 的属性，把这里加的 `js` 类一起冲掉；
+   于是 html:not(.js) 的降级规则（隐藏预览门、收起导航）会在客户端导航后错误生效。
+   必须在每次导航后重新补上。 */
+const markJs=()=>document.documentElement.classList.add('js');
 const initChrome=()=>{
+markJs();
 const button=document.querySelector('.nav-toggle'),nav=document.querySelector('#main-nav');
 /* <details> renders open on first paint; collapse every group before it shows. */
 document.querySelectorAll('details.nav-group').forEach(item=>item.removeAttribute('open'));
@@ -26,7 +31,7 @@ initChrome();
 /* View Transitions rewrites <html>'s attributes on every swap, which drops the
    theme attribute; re-apply it from storage before the new page paints. */
 const applyTheme=()=>{try{const saved=localStorage.getItem('jubeat-theme');const dark=window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.dataset.theme=saved||(dark?'dark':'light')}catch(e){document.documentElement.dataset.theme='light'}};
-document.addEventListener('astro:after-swap',applyTheme);
+document.addEventListener('astro:after-swap',()=>{applyTheme();markJs()});
 /* View Transitions swaps the page body, so re-init on every navigation */
 document.addEventListener('astro:page-load',()=>{applyTheme();initChrome()});</script></body></html>
 <style>

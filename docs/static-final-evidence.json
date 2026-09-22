@@ -1,6 +1,6 @@
 {
   "round": "t24-static",
-  "generatedAt": "2026-09-22T01:35:44.854Z",
+  "generatedAt": "2026-09-22T01:44:51.951Z",
   "historicalBrowserEvidence": "unavailable/overwritten",
   "browserLimitations": "本轮只执行 Node 静态产物验收；历史 Chrome evidence 不可恢复且不作为支持证据。Chrome/CDP harness 生命周期不稳定，未假称浏览器结果。",
   "counts": {

@@ -438,6 +438,16 @@ export function mountChart(root, chart) {
     if (activePlayer === player) activePlayer = null;
   }
 
+  // 点击播放器以外的任意位置即暂停：预览是辅助工具，不应该在用户去看别处时还在响。
+  // 用捕获阶段 + pointerdown，比 click 更早、且能覆盖拖拽/长按。
+  const onDocPointerDown = (e) => {
+    if (!playing) return;
+    if (root.contains(e.target)) return;
+    pause();
+  };
+  document.addEventListener('pointerdown', onDocPointerDown, true);
+  root.__unbindOutside = () => document.removeEventListener('pointerdown', onDocPointerDown, true);
+
   playBtn?.addEventListener('click', () => {
     if (playing) pause();
     else {
@@ -478,6 +488,7 @@ export function mountChart(root, chart) {
   root.__player = player;
   root.__stop = () => {
     if (playing) pause();
+    root.__unbindOutside?.();
     player?.dispose();
   };
 

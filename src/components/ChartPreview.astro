@@ -301,10 +301,12 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
   transform: scale(1.12);
 }
 
-/* 加载门 */
+/* 加载门。注意 z-index 必须高于 .jp-pad（has-cover 时被抬到 z-index:1），
+   否则按钮会被格子盖住只露一点点。 */
 .jp-gate {
   position: absolute;
   inset: 0;
+  z-index: 2;
   display: grid;
   place-content: center;
   gap: var(--w-s-2);
@@ -314,6 +316,8 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
   background: color-mix(in oklab, var(--w-ink) 42%, transparent);
   border-radius: var(--w-r-sm);
 }
+/* `hidden` 属性会被上面的 display:grid 覆盖掉，必须显式还原。 */
+.jp-gate[hidden] { display: none; }
 .jp-status { color: #fff; font-size: var(--w-fs-micro); text-shadow: 0 1px 3px rgb(0 0 0 / 0.7); }
 
 .jp-controls { display: flex; align-items: center; gap: var(--w-s-2); flex-wrap: wrap; }
