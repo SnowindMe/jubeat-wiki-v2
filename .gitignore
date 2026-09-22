@@ -52,3 +52,7 @@ _data-repo/
 # 平台本地状态
 .wrangler/
 .vercel/
+
+# 提交信息草稿（临时）
+_commit_msg.txt
+_m.txt
