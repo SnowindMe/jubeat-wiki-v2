@@ -24,6 +24,7 @@
 import { fetchChartSet, fetchAssets, normDiff } from './chart-source.js';
 import { findMczForTitle } from './mcz-match.js';
 import { analyzeAudio, AudioClockPlayer } from './chart-audio.js';
+import { setByteSink, clearByteSink } from './mcz-reader.js';
 
 // tap 动画时长 0.3s：出现后从整格满圈单向收缩，到中心即消失。
 // 500ms 时相邻音符在视觉上会叠在一起，非双押也容易被读成双押，所以再收到 300ms。
@@ -243,6 +244,9 @@ async function resolveMczUrl(root) {
     if (hit) {
       root.dataset.mcz = hit.url;
       root.dataset.mczTier = hit.tier;
+      // 清单条目自带字节数（{d,n,s}）：加载条的分母，构建期索引没命中时靠它
+      const size = Number(hit.entry?.s ?? hit.size ?? 0);
+      if (size > 0) root.dataset.mczSize = String(size);
       return hit.url;
     }
   } catch {
@@ -725,9 +729,61 @@ export async function loadAndMount(root) {
   const status = root.querySelector('.jp-status');
   const gate = root.querySelector('.jp-gate');
   const gateBtn = gate?.querySelector('button');
-  const setStatus = (text) => {
-    if (status && !isStale()) status.textContent = text;
+
+  // —— 加载条 ——
+  // 分母 = 整包字节数（构建期索引/data-mcz-size，与线上逐条实测一致），
+  // 分子 = mcz-reader 每读完一段 Range 就上报的实收字节累计。
+  // 谱面 ~9 KB、曲绘几十 KB、音频占 95% 以上，所以「已下载 / 整包」这条曲线
+  // 基本就是真实完成度；多节点实测探测与波形分析不上报字节，由阶段切换补推。
+  const totalBytes = Number(root.dataset.mczSize) || 0;
+  const bar = root.querySelector('.jp-bar');
+  const barFill = root.querySelector('.jp-bar-fill');
+  let gotBytes = 0;
+  let lastPct = 0;
+  let phaseLabel = '正在从 CDN 读取谱面…';
+
+  const paint = (pct) => {
+    if (!bar || !barFill) return;
+    // 只许前进：Range 分包 + 节点重试会有重复区间，实收字节可能略超整包
+    const next = Math.max(lastPct, Math.min(pct, 1));
+    lastPct = next;
+    bar.hidden = false;
+    if (totalBytes > 0) {
+      barFill.style.width = (next * 100).toFixed(1) + '%';
+      bar.setAttribute('aria-valuenow', String(Math.round(next * 100)));
+    } else {
+      // 分母未知：退化成不确定态（CSS 动画来回跑），别卡在 0% 装死
+      bar.classList.add('is-indeterminate');
+    }
   };
+
+  const renderStatus = () => {
+    if (!status || isStale()) return;
+    // 读数只在「有分母、已开始、还没读完」时附上，避免 0 / -- 这种噪音
+    const withBytes =
+      totalBytes > 0 && gotBytes > 0 && lastPct > 0 && lastPct < 1
+        ? `（${(gotBytes / 1048576).toFixed(2)} / ${(totalBytes / 1048576).toFixed(2)} MB）`
+        : '';
+    status.textContent = phaseLabel + withBytes;
+  };
+
+  const setStatus = (text) => {
+    phaseLabel = text;
+    renderStatus();
+  };
+
+  // 每段 Range 读完都会回调：更新字节读数与进度条。owner 令旧加载只能
+  // 注销自己的回调，不能清掉后来接管单槽的新加载。
+  const sinkOwner = {};
+  setByteSink((n) => {
+    gotBytes += n;
+    if (isStale()) return;
+    paint(totalBytes > 0 ? gotBytes / totalBytes : 0);
+    renderStatus();
+  }, sinkOwner);
+
+  // 加载中先把按钮收起：这块区域交给进度条，也避免「明明在加载还能再点一次」
+  if (gateBtn) gateBtn.hidden = true;
 
   try {
     const url = await resolveMczUrl(root);
@@ -833,6 +889,7 @@ export async function loadAndMount(root) {
     }
 
     if (isStale()) return null;
+    paint(1);
     setStatus('');
     if (gate) gate.hidden = true;
     const controls = root.querySelector('.jp-controls');
@@ -847,6 +904,9 @@ export async function loadAndMount(root) {
     if (isStale()) return null;
     root.dataset.state = 'error';
     setStatus('谱面加载失败：' + (err?.message ?? err));
+    // 失败时把进度条收掉、按钮放回来：停在半路的条子会被误读成「还在加载」
+    if (bar) bar.hidden = true;
+    if (gateBtn) gateBtn.hidden = false;
     console.error('[jp] load failed', err);
     // 诊断留痕：把异常全貌（含 name/cause/stack 首帧）挂到 root 上，便于 CDP 抓取。
     // 只挂数据、不改流程；验收完可以删掉。
@@ -861,6 +921,8 @@ export async function loadAndMount(root) {
     } catch { /* 诊断失败不影响主流程 */ }
     return null;
   } finally {
+    // 只注销本次加载自己的回调；若已有更新的加载接管单槽，则保留它。
+    clearByteSink(sinkOwner);
     // 只有最新的那次加载才有资格复位 __loading：旧加载提前退出时把标志清了，
     // 会让正在跑的新加载被后续调用当成「空闲」而重复进入。
     if (!isStale()) root.__loading = false;
@@ -1072,7 +1134,7 @@ function wireDiffSwitch() {
     }
   });
 
-  // 键盘：tablist 的方向键移动 + Home/End，Enter/Space 由 click 事件天然覆盖。
+  // 键盘：tablist 的方向键移动并自动激活，Home/End 同样切换难度；Enter/Space 由 click 覆盖。
   document.addEventListener('keydown', (e) => {
     const tab = e.target?.closest?.('.jp-rail [role="tab"]');
     if (!tab) return;
@@ -1081,16 +1143,22 @@ function wireDiffSwitch() {
     if (i < 0) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
       e.preventDefault();
+      const next = tabs[(i + 1 + tabs.length) % tabs.length];
       focusDiffTab(tabs, i + 1);
+      switchDiff(rootOf(tab), next?.dataset.jpDiff);
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
       e.preventDefault();
+      const next = tabs[(i - 1 + tabs.length) % tabs.length];
       focusDiffTab(tabs, i - 1);
+      switchDiff(rootOf(tab), next?.dataset.jpDiff);
     } else if (e.key === 'Home') {
       e.preventDefault();
       focusDiffTab(tabs, 0);
+      switchDiff(rootOf(tab), tabs[0]?.dataset.jpDiff);
     } else if (e.key === 'End') {
       e.preventDefault();
       focusDiffTab(tabs, tabs.length - 1);
+      switchDiff(rootOf(tab), tabs.at(-1)?.dataset.jpDiff);
     }
   });
 }

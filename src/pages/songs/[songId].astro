@@ -33,7 +33,7 @@ const diffItems = diffs.map(diff => ({
 }));
 // 铺面列的「▶ 预览」跳转：锚点落在单容器上（#preview-ext），
 // 同时带 data-jp-jump={diff} 让 JS 顺手切到对应难度。
-// 首版先只保留锚点语义，切换逻辑留给后续 chart-player.js 的改动，避免同时动两个文件。
+// chart-player.js 通过 data-jp-jump 委托处理难度切换，锚点仍负责滚动到单一预览器。
 ---
 
 <Layout title={`${song.title} 的谱面难度、来源、解禁与考据资料。`} description={`${song.title} 的谱面难度、来源、解禁与考据资料。`} section="songs">
@@ -94,6 +94,7 @@ const diffItems = diffs.map(diff => ({
             songId={String(song.songId)}
             songTitle={song.title}
             mcz={mczUrl}
+            mczSize={mczEntry?.size ?? null}
             defaultDiff="ext"
             diffs={diffItems}
             bpm={song.bpm}

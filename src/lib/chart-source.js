@@ -10,7 +10,15 @@
 //
 // 依赖：mcz-reader.js（zip + DecompressionStream）、mc-parser.js（.mc 解析）
 
-import { readZipEntries, readZipEntry, readZipText, diffOfEntry } from './mcz-reader.js';
+import {
+  readZipEntries,
+  readZipEntry,
+  readZipText,
+  diffOfEntry,
+  raceCdnNodes,
+  setCdnRanking,
+} from './mcz-reader.js';
+import { MCZ_CDN_NODES } from './mcz-match.js';
 import { parseMc, beatToSeconds } from './mc-parser.js';
 
 const INDEX_URL = '/data/mcz/index.json';
@@ -18,6 +26,38 @@ const INDEX_URL = '/data/mcz/index.json';
 const CHART_DIFFS = ['BSC', 'ADV', 'EXT'];
 
 let indexPromise = null;
+
+/**
+ * 运行时 CDN 节点实测选源（进程内只跑一次）。
+ *
+ * 为什么必须：data/mcz/index.json 里的 URL 是构建期写死的 cdn.jsdelivr.net，
+ * 而它对 .mcz 走 brotli 重编码——Range 声明的总长虚高、字节内容漂移，
+ * 浏览器里稳定读不出 EOCD（_repro_4nodes.mjs 实测：jsdmirror/fastly/b-cdn
+ * 三家诚实，唯独 cdn.jsdelivr.net 说谎）。mcz-reader 里的 raceCdnNodes/
+ * setCdnRanking 工具齐全但此前零调用，导致线上永远直连说谎节点、
+ * 失败后 advanceCdnNode 也因 cdnRanking=null 永不换节点。
+ *
+ * 做法：拿当前 URL 当样本串行探测四个节点，按「可用且字节精确优先、
+ * 其后 TTFB」排序登记；benchCdnNode 的 exact 校验（实收==期望区间）
+ * 会把重编码节点自然降权到队尾。全部探测失败时不动现有前缀，
+ * 让原有重试链路兜底。
+ *
+ * @param {string} sampleUrl 任一 .mcz 的完整 URL（只用来取仓库路径段）
+ */
+let cdnPickPromise = null;
+function ensureCdnNode(sampleUrl) {
+  if (!cdnPickPromise) {
+    cdnPickPromise = raceCdnNodes(sampleUrl, MCZ_CDN_NODES, { timeoutMs: 6000 })
+      .then(({ ranked }) => {
+        setCdnRanking(ranked, sampleUrl);
+      })
+      .catch(() => {
+        // 探测失败不阻塞加载：保持构建期前缀，交给 readZipEntries 自身重试
+        cdnPickPromise = null;
+      });
+  }
+  return cdnPickPromise;
+}
 
 /** 拉取并缓存 mcz 索引（songId -> {url, file, dir, size}） */
 export function loadMczIndex() {
@@ -85,6 +125,8 @@ const round4 = (x) => (Number.isFinite(x) ? Math.round(x * 10000) / 10000 : 0);
  * @returns {Promise<{charts:Record<string,object>, entryNames:string[]}>}
  */
 export async function fetchChartSet(url, { bpm } = {}) {
+  // 先实测选节点（进程内一次）：把说谎的 jsdelivr 降到队尾，诚实节点顶上
+  await ensureCdnNode(url);
   const entries = await readZipEntries(url);
 
   // 只挑 .mc 条目，且只挑三难度
@@ -145,6 +187,7 @@ export function clearAudioCache() {
 export function loadAudioBytes(url) {
   if (audioCache.has(url)) return audioCache.get(url);
   const p = (async () => {
+    await ensureCdnNode(url);
     const entries = await readZipEntries(url);
     const e = entries.find((x) => /\.(ogg|mp3|m4a)$/i.test(x.name));
     if (!e) throw new Error('谱包里没有音频条目');

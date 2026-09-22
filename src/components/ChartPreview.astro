@@ -32,6 +32,8 @@ interface Props {
   songTitle?: string;
   /** 曲目级 .mcz CDN 地址（三难度共用一份）；为空时由前端兜底匹配 */
   mcz?: string | null;
+  /** 该 .mcz 的字节数（构建期索引记录，与线上实测逐条一致）：加载条的分母 */
+  mczSize?: number | null;
   /** 三个难度，顺序即左侧难度栏顺序 */
   diffs: DiffItem[];
   /** 默认选中的难度代号，默认第一个 */
@@ -44,6 +46,7 @@ const {
   songId = '',
   songTitle = '',
   mcz = null,
+  mczSize = null,
   diffs,
   defaultDiff = diffs[0]?.diff ?? 'ext',
   bpm = null,
@@ -65,6 +68,7 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
   data-song-id={songId}
   data-song-title={songTitle}
   data-mcz={mcz ?? ''}
+  data-mcz-size={mczSize ?? ''}
   data-diff={active?.diff ?? defaultDiff}
   data-bpm={bpm ?? ''}
   data-state="idle"
@@ -101,7 +105,22 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
       <div class="jp-gate">
         <button type="button" class="jp-load w-btn">▶ 加载预览</button>
-        <span class="jp-status">从 CDN 按需读取谱面、音频与曲绘</span>
+        <div
+          class="jp-bar"
+          hidden
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+          aria-label="谱面加载进度"
+        >
+          <div class="jp-bar-fill"></div>
+        </div>
+        <span class="jp-status">
+          {mczSize
+            ? `从 CDN 按需读取谱面、音频与曲绘（约 ${(mczSize / 1048576).toFixed(1)} MB）`
+            : '从 CDN 按需读取谱面、音频与曲绘'}
+        </span>
       </div>
     </div>
 
@@ -199,7 +218,17 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 .jp-readout { color: var(--w-muted); font-family: var(--w-font-data); font-size: var(--w-fs-micro); }
 
 /* 舞台：曲绘作为背景，加载后由 --jp-cover 注入 */
-.jp-stage { position: relative; border-radius: var(--w-r-sm); overflow: hidden; }
+.jp-stage {
+  position: relative;
+  border-radius: var(--w-r-sm);
+  overflow: hidden;
+  /* 预览主体限宽并靠右列右缘对齐：详情页右列较宽时面板拉得太满（用户反馈过大），
+     限到 280px 左右接近旧三预览器布局的单格观感；曲绘背景随之收窄。
+     margin-inline-start: auto 把面板推到右列最右，左难度栏与面板之间自然留白。 */
+  max-width: 280px;
+  margin-inline-start: auto;
+  width: 100%;
+}
 .jp.has-cover .jp-pad { position: relative; z-index: 1; }
 
 /* 面板：4×4 单行流。**只声明列，行由 grid-auto-rows 均分** ——
@@ -462,6 +491,36 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 .jp-gate[hidden] { display: none; }
 .jp-status { color: #fff; font-size: var(--w-fs-micro); text-shadow: 0 1px 3px rgb(0 0 0 / 0.7); }
 
+/* 加载条。进度分母是整包字节数（构建期索引里的 size，与线上实测一致），
+   分子是 Range 实收字节的累计 —— 谱面 ~9 KB、曲绘几十 KB、音频占 95% 以上，
+   所以「已下载 / 整包」这条曲线基本就等于真实完成度。
+   读数不可数的部分（多节点实测探测、波形分析）由 JS 在阶段切换时补推。 */
+.jp-bar {
+  width: 200px;
+  max-width: 56vw;
+  height: 6px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.45);
+  box-shadow: inset 0 0 0 1px var(--w-seam-soft);
+  overflow: hidden;
+}
+.jp-bar-fill {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--w-hit);
+  transition: width 0.18s linear;
+}
+/* 分母未知（索引里没记到大小）时退化成不确定态，不要卡在 0% 装死 */
+.jp-bar.is-indeterminate .jp-bar-fill {
+  width: 34%;
+  animation: jp-bar-slide 1.1s ease-in-out infinite;
+}
+@keyframes jp-bar-slide {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(320%); }
+}
+
 .jp-controls { display: flex; align-items: center; gap: var(--w-s-2); flex-wrap: wrap; }
 .jp-controls[hidden] { display: none; }
 .jp-rate { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
@@ -500,5 +559,9 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 :global(html:not(.js)) .jp-gate { display: none; }
 :global(html:not(.js)) .jp-diff { pointer-events: none; }
 :global(html:not(.js)) .jp-pad { opacity: 0.72; }
-@media (prefers-reduced-motion: reduce) { :global(.jp-key) { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+  :global(.jp-key) { transition: none; }
+  .jp-bar-fill { transition: none; }
+  .jp-bar.is-indeterminate .jp-bar-fill { animation: none; width: 60%; }
+}
 </style>

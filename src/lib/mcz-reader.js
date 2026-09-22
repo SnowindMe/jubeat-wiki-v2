@@ -50,6 +50,37 @@ const LFH_SIG = 0x04034b50;
 /** @type {Map<string, Promise<FileGeometry>>} */
 const geoCache = new Map();
 
+// ── 字节级进度回调（加载条用）──────────────────────────────
+// 模块级单槽，但带 owner：并发加载时旧请求不得注销新请求的回调。
+// readRange 每收完一段就上报实收字节数。
+/** @type {{fn:(bytes:number)=>void, owner:object}|null} */
+let byteSink = null;
+
+/**
+ * 注册进度回调。新 owner 会接管单槽；传非函数即清空当前槽。
+ * 回调抛错不得影响读取主流程，这里整体吞掉。
+ * @param {((bytes:number)=>void)|null} fn
+ * @param {object} [owner]
+ */
+export function setByteSink(fn, owner = {}) {
+  byteSink = typeof fn === 'function' ? { fn, owner } : null;
+}
+
+/** 仅当当前回调属于 owner 时注销，避免旧加载清掉新加载。 */
+export function clearByteSink(owner) {
+  if (byteSink?.owner === owner) byteSink = null;
+}
+
+/** 上报一段实收字节 */
+function reportBytes(n) {
+  if (!byteSink || !(n > 0)) return;
+  try {
+    byteSink(n);
+  } catch {
+    /* 进度回调异常不得中断读取 */
+  }
+}
+
 /** 当前生效的 CDN 节点前缀（多节点回退时覆写） */
 let cdnBase = null;
 
@@ -168,11 +199,11 @@ export async function benchCdnNode(url, node, { timeoutMs = 6000, sampleRange = 
   const t0 = performance.now();
   const elapsed = () => performance.now() - t0;
 
-  const once = async () => {
+  const once = async (range) => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const res = await fetch(target, { headers: { Range: sampleRange }, signal: ctrl.signal });
+      const res = await fetch(target, { headers: { Range: range }, signal: ctrl.signal });
       if (res.status === 404) return { retry: true, status: 404 };
       if (!res.ok && res.status !== 206) return { fatal: 'status ' + res.status };
       const cr = res.headers.get('content-range');
@@ -183,12 +214,12 @@ export async function benchCdnNode(url, node, { timeoutMs = 6000, sampleRange = 
       }
       const buf = new Uint8Array(await res.arrayBuffer());
       let want = null;
-      const rm = /bytes=(\d+)-(\d+)/.exec(sampleRange);
+      const rm = /bytes=(\d+)-(\d+)/.exec(range);
       if (rm) want = Number(rm[2]) - Number(rm[1]) + 1;
       const realLen = buf.byteLength;
       const magicOk = realLen >= 4 && buf[0] === 0x50 && buf[1] === 0x4b;
       const exact = want == null ? true : realLen === want;
-      return { done: true, declaredTotal, realLen, want, magicOk, exact, status: res.status };
+      return { done: true, declaredTotal, realLen, want, magicOk, exact, status: res.status, buf };
     } catch (e) {
       return { fatal: String(e?.name === 'AbortError' ? 'timeout' : e?.message || e) };
     } finally {
@@ -197,24 +228,46 @@ export async function benchCdnNode(url, node, { timeoutMs = 6000, sampleRange = 
   };
 
   try {
-    let r = await once();
+    let r = await once(sampleRange);
     // 冷文件 404：短退避后重试一次
     if (r.retry) {
       await new Promise((res) => setTimeout(res, 400));
-      r = await once();
+      r = await once(sampleRange);
     }
     if (r.done) {
+      // 尾窗 EOCD 探针：首窗诚实 ≠ 整体诚实。实测两类说谎节点——
+      // ①头 1KB 精确但声明总长虚高、越界请求按虚报总长补垃圾字节（谎言自洽）；
+      // ②压缩通道整个字节流重编码。两者都要靠「它自己声明的末尾 64 字节」来验：
+      // ZIP 的 EOCD（PK\x05\x06）必然是文件最后 22 字节，诚实节点的尾窗响应体
+      // （哪怕按真实文件尾截断到 declaredTotal-1 之内）末尾必然恰是 EOCD 签名；
+      // 字节漂移或垃圾填充都凑不出这个结构。
+      let tailOk = null;
+      if (r.exact && r.magicOk && r.declaredTotal != null && r.declaredTotal > 64) {
+        const tailStart = r.declaredTotal - 64;
+        const t = await once(`bytes=${tailStart}-${r.declaredTotal - 1}`);
+        if (t.done && t.status === 206 && t.buf && t.buf.length >= 22) {
+          const b = t.buf;
+          const at = b.length - 22;
+          tailOk = b[at] === 0x50 && b[at + 1] === 0x4b && b[at + 2] === 0x05 && b[at + 3] === 0x06;
+        }
+        // 探针拿不到（416/CORS 藏头/超时）→ tailOk 保持 null，不因此降权
+      }
+      const headOk = r.exact && r.magicOk;
       return {
         id: node.id,
         ok: true,
-        accurate: r.exact && r.magicOk,
+        accurate: headOk && tailOk !== false,
         magicOk: r.magicOk,
         ttfb: elapsed(),
         dur: elapsed(),
         declaredTotal: r.declaredTotal,
         realLen: r.realLen,
         want: r.want,
-        reason: r.exact ? (r.magicOk ? '' : '字节数对但不是 ZIP') : `重编码（期望 ${r.want} 实收 ${r.realLen}）`,
+        reason: !headOk
+          ? (r.magicOk ? `重编码（期望 ${r.want} 实收 ${r.realLen}）` : '首窗不是 ZIP')
+          : tailOk === false
+            ? '尾窗无 EOCD 签名（总长虚高或重编码）'
+            : '',
       };
     }
     if (r.retry) {
@@ -613,12 +666,19 @@ async function readRange(url, start, end) {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        if (value && value.byteLength) { chunks.push(value); partialLen += value.byteLength; }
+        if (value && value.byteLength) {
+          chunks.push(value);
+          partialLen += value.byteLength;
+          // 逐块上报而不是整段读完再报：音频是单次 ~1.9 MB 的 Range，
+          // 攒到最后上报会让进度条一路卡在 3% 然后直接跳满。
+          reportBytes(value.byteLength);
+        }
       }
     } else {
       const whole = new Uint8Array(await r.arrayBuffer());
       chunks.push(whole);
       partialLen = whole.byteLength;
+      reportBytes(partialLen);
     }
     bytes = new Uint8Array(partialLen);
     let off = 0;
@@ -639,7 +699,10 @@ async function readRange(url, start, end) {
         const r2 = await fetchWithRetry(real, { headers: { Range: `bytes=${hdrStart}-${trueEnd}` } });
         if (r2.ok) {
           const b2 = new Uint8Array(await r2.arrayBuffer());
-          if (b2.length > 0) return { bytes: b2, start: hdrStart, end: trueEnd };
+          if (b2.length > 0) {
+            reportBytes(b2.length);
+            return { bytes: b2, start: hdrStart, end: trueEnd };
+          }
         }
       }
     }
@@ -908,6 +971,30 @@ async function readZipEntriesOnce(url) {
     const name = new TextDecoder().decode(cd.subarray(off + 46, off + 46 + nameLen));
     entries.push({ name, compMethod, compSize, uncompSize, localOffset });
     off += 46 + nameLen + extraLen + commentLen;
+  }
+
+  // 3.5) 结构自洽终检（防线 2）：条目表是按「节点给的字节」解析出来的，
+  // 若节点在传输中重编码/填充垃圾（实测 cdn.jsdelivr.net 浏览器通道对 .mcz
+  // 做 brotli 重编码：总长虚高 +5、字节漂移），解析结果必然违反 zip 内部恒等式：
+  //   a) 条目数 == EOCD 声明的 expectCount（窗口扫描路径已有 countCentralEntries
+  //      校验，但按 cdOffset 单独请求的兜底路径没有这道检查）
+  //   b) 条目恰好走完整个中央目录（off === cdSize）
+  //   c) 每条 localOffset 都指向中央目录之前的 local header——cdOffset/localOffset
+  //      都是 EOCD/CDH 里的【文件内】坐标，与 CDN 声明的总长无关，重编码字节流
+  //      凑不出这组恒等式。
+  // 任一不满足即判定「该节点的字节流不可信」，抛错让外层 readZipEntries
+  // 重试并 advanceCdnNode 换节点。
+  if (entries.length !== expectCount || off !== cdSize) {
+    throw new Error(
+      `CDN 字节流不自洽（条目 ${entries.length}/${expectCount}，解析 ${off}/${cdSize} 字节）`,
+    );
+  }
+  for (const en of entries) {
+    if (en.localOffset >= cdOffset) {
+      throw new Error(
+        `CDN 字节流不自洽（${en.name} localOffset ${en.localOffset} ≥ 目录起点 ${cdOffset}）`,
+      );
+    }
   }
   return entries;
 }
